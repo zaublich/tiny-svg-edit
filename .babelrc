@@ -1,0 +1,14 @@
+{
+    "presets": ["@babel/env","@babel/preset-react", "@babel/typescript"],
+    "plugins": [
+      "@babel/proposal-numeric-separator",
+      [
+        "@babel/proposal-decorators",
+        {
+          "legacy": true
+        }
+      ],
+      ["@babel/proposal-class-properties", { "loose": false }],
+      "@babel/proposal-object-rest-spread"
+    ]
+  }
