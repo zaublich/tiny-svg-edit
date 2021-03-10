@@ -44,22 +44,50 @@ class Viewport {
     }
 }
 
+class ViewNode {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  fill: string;
+  constructor(x:number, y:number, width:number, height:number, fill:string) {
+    this.x = x;
+    this.y = y;
+    this.height = height;
+    this.width = width;
+    this.fill = fill;
+  }
+}
 class Editor {
     drag: Observable<number>
     selection: Observable<SVGRect>
+    selected: Observable<Set<string>>
+    nodeIndex:Observable<Array<string>>
+    nodes: Observable<Object>
     viewport: Observable<Viewport>
     rootNode: Element
     pointerEvent: rxjs.Observable<PointerEvent>
-    selectedNodes: Observable<Array<string>>
 
     constructor(root:Element) {
-        this.rootNode = root;
-        this.drag = o(0);
-        this.selection = o(new DOMRect());
-        this.viewport = o(new Viewport({}));
-        this.pointerEvent = PointerEventObservable(this.rootNode);
-        this.selectedNodes = o([]);
-        this.bindEvents()
+      this.selected = o(new Set<string>())
+      this.nodes = o({})
+      this.nodeIndex = o([])
+      var nodeIndex = []
+      var nodes = {}
+      for (var xIdx = 0; xIdx < 40; xIdx++) {
+        for (var yIdx = 0; yIdx < 40; yIdx++) {
+          nodeIndex.push(`${xIdx}-${yIdx}`)
+          nodes[`${xIdx}-${yIdx}`] = new ViewNode(xIdx * 10, yIdx * 10, 8, 8, '#fff');
+        }
+      }
+      this.nodes(nodes);
+      this.nodeIndex(nodeIndex)
+      this.rootNode = root;
+      this.drag = o(0);
+      this.selection = o(new DOMRect());
+      this.viewport = o(new Viewport({}));
+      this.pointerEvent = PointerEventObservable(this.rootNode);
+      this.bindEvents()
     }
 
     bindEvents() {
@@ -75,7 +103,6 @@ class Editor {
         if (this.drag() == 1 && ev.type == 'MOVE') {
           const c = this.selection();
           this.selection(new DOMRect(c.x, c.y, c.width + ev.relX, c.height + ev.relY))
-          console.log(this.selection());
         }
 
         if (this.drag() == 3 && ev.type == 'MOVE') {
@@ -100,14 +127,16 @@ class Editor {
             const s = r.getBoundingClientRect();
             const selectedNodes = Array.from(elements?.querySelectorAll(':scope > .node')).reduce((accumulator, n) => {
               if (n.classList.contains('selection') == false && collide(s, n.getBoundingClientRect())) {
-                accumulator.push(n.id);
+                accumulator.add(n.id);
               }
               return accumulator;
-            }, [])
+            }, new Set<string>())
             if (selectedNodes) {
-                this.selectedNodes(selectedNodes)
+              this.selected(selectedNodes)
+                //this.selectedNodes(selectedNodes)
             } else {
-                this.selectedNodes([])
+              this.selected(new Set<string>());
+                //this.selectedNodes([])
             }
           }
           this.drag(0);
@@ -128,10 +157,24 @@ class Editor {
         return [];
     }
 
+    renderNodes() {
+      const nodes = this.nodes()
+      const selected = this.selected();
+      console.log(selected)
+      return  map(this.nodeIndex, (n) => {
+        const v = nodes[n];
+        if(selected.has(n)){
+          return svg`<rect id=${n} class="node selected" x=${v.x} y=${v.y} width=${v.width} height=${v.height} fill=${v.fill} />`
+        }else{
+          return svg`<rect id=${n} class="node" x=${v.x} y=${v.y} width=${v.width} height=${v.height} fill=${v.fill} />`
+        }
+      });
+    }
+
     drawNodesSelectionBox() {
-        const e = this.getSelectedElements;
         return () => {
-          const elements = e()
+          const elements = Array.from(document.querySelectorAll('.node.selected'))
+          console.log('Elements',elements);
           if (elements.length > 0) {
               const box = elements[0].getBBox();
               let top = box.y;
@@ -159,12 +202,12 @@ class Editor {
      }
 
     canvas() {
-      const viewport = this.viewport;
       return () => {
-        const v = viewport();
+        const v = this.viewport();
         return svg`
         <svg oncontextmenu=${(e) => e.preventDefault()} id="svg-root" viewBox="0 0 1000 1000"  preserveAspectRatio="xMidYMid meet">
             <g transform="scale(${v.scale},${v.scale}) translate(${v.x} ${v.y}) ">
+            ${this.renderNodes()}
             ${this.drawNodesSelectionBox()}
             </g>
             ${this.rubberSelection()}
