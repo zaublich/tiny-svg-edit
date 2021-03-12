@@ -2,7 +2,7 @@ import { Document } from './document'
 import { o, svg, html } from 'sinuous'
 import { PointerEventObservable, PointerEvent } from './PointerEvents'
 import { map } from 'sinuous/map'
-import { Observable } from 'sinuous/observable'
+import { Observable, S } from 'sinuous/observable'
 import * as rxjs from 'rxjs'
 import { render } from 'react-dom'
 const counter = o(0)
@@ -22,11 +22,11 @@ const normalize = (s) => {
 }
 const collide = (s, bb) => {
   const n = normalize(s);
-  if ((s.x + s.width < bb.x) || (s.y + s.height < bb.y) || (s.x > bb.x + bb.width) || (s.y > bb.y + bb.height)) {
-    return false;
-  } else {
-    return true;
-  }
+  return !((s.x + s.width < bb.x) || (s.y + s.height < bb.y) || (s.x > bb.x + bb.width) || (s.y > bb.y + bb.height));
+}
+
+const inside = (x, y, bb) => {
+  return x > bb.x && y > bb.y && x < bb.x + bb.width && y < bb.y + bb.height;
 }
 
 function clamp(val:number, min:number, max:number) {
@@ -63,7 +63,9 @@ class Editor {
     selection: Observable<SVGRect>
     selected: Observable<Set<string>>
     nodeIndex:Observable<Array<string>>
-    nodes: Observable<Object>
+    nodeIndexCache:Array<string>
+    nodes: Observable<Record<string, ViewNode>>
+    nodeCache: Record<string, ViewNode>
     viewport: Observable<Viewport>
     rootNode: Element
     pointerEvent: rxjs.Observable<PointerEvent>
@@ -72,16 +74,16 @@ class Editor {
       this.selected = o(new Set<string>())
       this.nodes = o({})
       this.nodeIndex = o([])
-      var nodeIndex = []
-      var nodes = {}
-      for (var xIdx = 0; xIdx < 40; xIdx++) {
-        for (var yIdx = 0; yIdx < 40; yIdx++) {
-          nodeIndex.push(`${xIdx}-${yIdx}`)
-          nodes[`${xIdx}-${yIdx}`] = new ViewNode(xIdx * 10, yIdx * 10, 8, 8, '#fff');
+      this.nodeIndexCache = []
+      this.nodeCache = {}
+      for (let xIdx = 0; xIdx < 20; xIdx++) {
+        for (let yIdx = 0; yIdx < 40; yIdx++) {
+          this.nodeIndexCache.push(`${xIdx}-${yIdx}`)
+          this.nodeCache[`${xIdx}-${yIdx}`] = new ViewNode(xIdx * 10, yIdx * 10, 8, 8, '#fff');
         }
       }
-      this.nodes(nodes);
-      this.nodeIndex(nodeIndex)
+      this.nodes(this.nodeCache);
+      this.nodeIndex(this.nodeIndexCache)
       this.rootNode = root;
       this.drag = o(0);
       this.selection = o(new DOMRect());
@@ -93,11 +95,25 @@ class Editor {
     bindEvents() {
         this.pointerEvent.subscribe((ev) => {
         if (ev.type == 'DOWN') {
-          this.drag(ev.button);
-          const rect = this.rootNode?.getBoundingClientRect();
-          if (rect) {
-            this.selection(new DOMRect(ev.x, ev.y - 50, 0, 0))
+          const selectionBox = document.querySelector('#svg-root g > .selection');
+          if (selectionBox && inside(ev.x, ev.y, selectionBox.getBoundingClientRect())) {
+            this.drag(100);
+            console.log('HERE')
+          } else {
+            this.drag(ev.button);
+            const rect = this.rootNode?.getBoundingClientRect();
+            if (rect) {
+              this.selection(new DOMRect(ev.x, ev.y - 50, 0, 0))
+            }
           }
+        }
+
+        if (this.drag() == 100 && ev.type == 'MOVE') {
+          for (var idx of Array.from(this.selected())) {
+            this.nodeCache[idx].x += ev.relX / this.viewport().scale;
+            this.nodeCache[idx].y += ev.relY / this.viewport().scale;
+          }
+          this.nodes(this.nodeCache);
         }
 
         if (this.drag() == 1 && ev.type == 'MOVE') {
@@ -145,7 +161,7 @@ class Editor {
     }
 
     rubberSelection() {
-        if (this.drag()) {
+        if (this.drag() == 1) {
             const v = this.selection();
             return () => svg`<path id="rubber" fill="#7dd5" stroke="#affc" d="m${v.x} ${v.y} h${v.width} v${v.height} h${-v.width} z"></path>`
         } else {
@@ -160,12 +176,11 @@ class Editor {
     renderNodes() {
       const nodes = this.nodes()
       const selected = this.selected();
-      console.log(selected)
-      return  map(this.nodeIndex, (n) => {
+      return map(this.nodeIndex, (n) => {
         const v = nodes[n];
-        if(selected.has(n)){
+        if (selected.has(n)) {
           return svg`<rect id=${n} class="node selected" x=${v.x} y=${v.y} width=${v.width} height=${v.height} fill=${v.fill} />`
-        }else{
+        } else {
           return svg`<rect id=${n} class="node" x=${v.x} y=${v.y} width=${v.width} height=${v.height} fill=${v.fill} />`
         }
       });
@@ -174,7 +189,6 @@ class Editor {
     drawNodesSelectionBox() {
         return () => {
           const elements = Array.from(document.querySelectorAll('.node.selected'))
-          console.log('Elements',elements);
           if (elements.length > 0) {
               const box = elements[0].getBBox();
               let top = box.y;
