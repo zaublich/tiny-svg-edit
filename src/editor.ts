@@ -63,7 +63,7 @@ class Editor {
     selection: Observable<SVGRect>
     selected: Observable<Set<string>>
     nodeIndex:Observable<Array<string>>
-    nodes: Observable<Object>
+    nodes: Observable<Record<string, ViewNode>>
     viewport: Observable<Viewport>
     rootNode: Element
     pointerEvent: rxjs.Observable<PointerEvent>
@@ -72,10 +72,10 @@ class Editor {
       this.selected = o(new Set<string>())
       this.nodes = o({})
       this.nodeIndex = o([])
-      var nodeIndex = []
-      var nodes = {}
-      for (var xIdx = 0; xIdx < 40; xIdx++) {
-        for (var yIdx = 0; yIdx < 40; yIdx++) {
+      const nodeIndex = []
+      const nodes = {}
+      for (let xIdx = 0; xIdx < 40; xIdx++) {
+        for (let yIdx = 0; yIdx < 40; yIdx++) {
           nodeIndex.push(`${xIdx}-${yIdx}`)
           nodes[`${xIdx}-${yIdx}`] = new ViewNode(xIdx * 10, yIdx * 10, 8, 8, '#fff');
         }
@@ -161,11 +161,11 @@ class Editor {
       const nodes = this.nodes()
       const selected = this.selected();
       console.log(selected)
-      return  map(this.nodeIndex, (n) => {
+      return map(this.nodeIndex, (n) => {
         const v = nodes[n];
-        if(selected.has(n)){
+        if (selected.has(n)) {
           return svg`<rect id=${n} class="node selected" x=${v.x} y=${v.y} width=${v.width} height=${v.height} fill=${v.fill} />`
-        }else{
+        } else {
           return svg`<rect id=${n} class="node" x=${v.x} y=${v.y} width=${v.width} height=${v.height} fill=${v.fill} />`
         }
       });
@@ -174,7 +174,7 @@ class Editor {
     drawNodesSelectionBox() {
         return () => {
           const elements = Array.from(document.querySelectorAll('.node.selected'))
-          console.log('Elements',elements);
+          console.log('Elements', elements);
           if (elements.length > 0) {
               const box = elements[0].getBBox();
               let top = box.y;
