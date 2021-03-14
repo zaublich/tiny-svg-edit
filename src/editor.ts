@@ -117,11 +117,15 @@ class Editor {
             this.drag(100);
           } else {
             this.drag(ev.button);
+            this.selected().forEach((e) => {
+              this.nodeCache[e].mat = this.nodeCache[e].mat.multiply(this.selectionBox().mat)
+            });
             this.selected(new Set())
             const rect = this.rootNode?.getBoundingClientRect();
             if (rect) {
               this.selection(new DOMRect(ev.x, ev.y - 50, 0, 0))
             }
+            this.nodes(this.nodeCache)
           }
         }
 
@@ -155,24 +159,21 @@ class Editor {
         if (ev.type == 'UP') {
           const elements = document.querySelector('#svg-root g')
           const r = document.querySelector('#rubber');
-          if (r && ev.button == 1) {
-            const s = r.getBoundingClientRect();
-            
-            this.selected().forEach((e)=>{
-              this.nodeCache[e].mat = 
-            });
-
-            const selectedNodes = Array.from(elements?.querySelectorAll(':scope > .node')).reduce((accumulator, n) => {
-              if (n.classList.contains('selection') == false && collide(s, n.getBoundingClientRect())) {
-                accumulator.add(n.id);
+          if (ev.button == 1) {
+            if (r) {
+              const s = r.getBoundingClientRect();
+              const selectedNodes = Array.from(elements?.querySelectorAll(':scope > .node')).reduce((accumulator, n) => {
+                if (n.classList.contains('selection') == false && collide(s, n.getBoundingClientRect())) {
+                  accumulator.add(n.id);
+                }
+                return accumulator;
+              }, new Set<string>())
+              if (selectedNodes) {
+                this.selected(selectedNodes)
+                this.updateSelectionBox();
+              } else {
+                this.selected(new Set<string>());
               }
-              return accumulator;
-            }, new Set<string>())
-            if (selectedNodes) {
-              this.selected(selectedNodes)
-              this.updateSelectionBox();
-            } else {
-              this.selected(new Set<string>());
             }
           }
           this.drag(0);
@@ -223,9 +224,13 @@ class Editor {
       const right = left + box.width
       const bottom = top + box.height;
       const v = this.viewport()
-      return svg`<rect x=${left - 8 / v.scale} y=${top - 8 / v.scale} width=${8 / v.scale} height=${8 / v.scale} transform=${box.mat} fill="#ccc" stroke="#000" vector-effect="non-scaling-stroke" />
-      <rect  x=${left - 8 / v.scale} y=${top - 8 / v.scale} class="selection" width=${right - left + 8 / v.scale} height=${bottom - top + 8 / v.scale} 
-             fill="none" stroke="#555" stroke-width="1" stroke-dasharray="3" vector-effect="non-scaling-stroke"></rect> `;
+      if (this.selected().size > 0) {
+        return svg`<rect x=${left - 8 / v.scale} y=${top - 8 / v.scale} width=${8 / v.scale} height=${8 / v.scale} transform=${box.mat} fill="#ccc" stroke="#000" vector-effect="non-scaling-stroke" />
+        <rect  x=${left - 8 / v.scale} y=${top - 8 / v.scale} class="selection" width=${right - left + 8 / v.scale} transform=${box.mat} height=${bottom - top + 8 / v.scale} 
+              fill="none" stroke="#555" stroke-width="1" stroke-dasharray="3" vector-effect="non-scaling-stroke"></rect> `;
+      } else {
+        return svg``
+      }
     }
 
     updateSelectionBox() {
