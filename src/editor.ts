@@ -117,9 +117,19 @@ class Editor {
             this.drag(100);
           } else {
             this.drag(ev.button);
-            this.selected().forEach((e) => {
-              this.nodeCache[e].mat = this.nodeCache[e].mat.multiply(this.selectionBox().mat)
-            });
+            const v = this.viewport()
+            const ctm = (document.querySelector('#canvas') as SVGGraphicsElement).getCTM().inverse()
+            if (ctm) {
+              this.selected().forEach((e) => {
+                const node = (document.getElementById(e) as SVGGraphicsElement)
+                if (node) {
+                  const mt = ctm.multiply(node.getCTM())
+                  if (mt) {
+                    this.nodeCache[e].mat = (new DOMMatrix([mt.a, mt.b, mt.c, mt.d, mt.e, mt.f]))
+                  }
+                }
+              });
+            }
             this.selected(new Set())
             const rect = this.rootNode?.getBoundingClientRect();
             if (rect) {
@@ -267,9 +277,10 @@ class Editor {
     canvas() {
       return () => {
         const v = this.viewport();
+        const mat = new DOMMatrix(`scale(${v.scale},${v.scale}) translate(${v.x}px,${v.y}px)`)
         return svg`
         <svg oncontextmenu=${(e) => e.preventDefault()} id="svg-root" viewBox="0 0 1000 1000"  preserveAspectRatio="xMidYMid meet">
-            <g id="canvas" transform="scale(${v.scale},${v.scale}) translate(${v.x} ${v.y}) ">
+            <g id="canvas" transform=${mat}>
             ${this.renderNodes()}
             ${this.renderSelectedNodes()}
             ${this.drawNodesSelectionBox()}
