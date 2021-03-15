@@ -73,6 +73,19 @@ const transformedBBox = (bbox: SVGRect, mat: DOMMatrix) => {
   return new DOMRect(left, top, right - left, bottom - top);
 }
 
+class SVGView{
+  root: HTMLElement
+  constructor(root:HTMLElement) {
+    this.root = root;
+  }
+
+  findSelectionBox() {
+  }
+
+  findNodeById(id: string) {
+  }
+}
+
 class Editor {
     drag: Observable<number>
     selection: Observable<SVGRect>
@@ -109,19 +122,35 @@ class Editor {
       this.bindEvents()
     }
 
+    getSelectionNode(){
+      return this.rootNode.querySelector('#selection');
+    }
+
+    getViewportNode(){
+      return this.rootNode.querySelector('#viewport') as SVGGraphicsElement;
+    }
+
+    getNode(id:string){
+      return this.rootNode.querySelector('#'+id);
+    }
+
+    getNodeList(){
+      return Array.from(this.rootNode.querySelectorAll(':scope > .node'));
+    }
+
     bindEvents() {
         this.pointerEvent.subscribe((ev) => {
         if (ev.type == 'DOWN') {
-          const selectionBox = document.querySelector('#svg-root g > .selection');
+          const selectionBox = this.getSelectionNode();
           if (selectionBox && inside(ev.x, ev.y, selectionBox.getBoundingClientRect())) {
             this.drag(100);
           } else {
             this.drag(ev.button);
             const v = this.viewport()
-            const ctm = (document.querySelector('#canvas') as SVGGraphicsElement).getCTM().inverse()
+            const ctm = this.getViewportNode.getCTM().inverse()
             if (ctm) {
               this.selected().forEach((e) => {
-                const node = (document.getElementById(e) as SVGGraphicsElement)
+                const node = (this.getNode(e) as SVGGraphicsElement)
                 if (node) {
                   const mt = ctm.multiply(node.getCTM())
                   if (mt) {
@@ -143,7 +172,6 @@ class Editor {
           var box = this.selectionBox();
           box.mat.translateSelf(ev.relX / this.viewport().scale, ev.relY / this.viewport().scale, 0)
           this.selectionBox(box);
-          const selectionBox = document.querySelector('#svg-root g > .selection');
         }
 
         if (this.drag() == 1 && ev.type == 'MOVE') {
@@ -172,8 +200,8 @@ class Editor {
           if (ev.button == 1) {
             if (r) {
               const s = r.getBoundingClientRect();
-              const selectedNodes = Array.from(elements?.querySelectorAll(':scope > .node')).reduce((accumulator, n) => {
-                if (n.classList.contains('selection') == false && collide(s, n.getBoundingClientRect())) {
+              const selectedNodes = this.getNodeList().reduce((accumulator, n) => {
+                if (collide(s, n.getBoundingClientRect())) {
                   accumulator.add(n.id);
                 }
                 return accumulator;
@@ -273,7 +301,7 @@ class Editor {
       });
 
       if (bottom != top || left != right) {
-        const ctm = (document.querySelector('#canvas') as SVGGraphicsElement).getCTM()?.inverse()
+        const ctm = this.getViewportNode().getCTM()?.inverse()
         if (ctm) {
           const inversed = transformedBBox(new DOMRect(left, top, right - left, bottom - top), new DOMMatrix([ctm.a, ctm.b, ctm.c, ctm.d, ctm.e, ctm.f]));
           this.selectionBox(new ViewNode(inversed.x, inversed.y, inversed.width, inversed.height));
@@ -287,7 +315,7 @@ class Editor {
         const mat = new DOMMatrix(`scale(${v.scale},${v.scale}) translate(${v.x}px,${v.y}px)`)
         return svg`
         <svg oncontextmenu=${(e) => e.preventDefault()} id="svg-root" viewBox="0 0 1000 1000"  preserveAspectRatio="xMidYMid meet">
-            <g id="canvas" transform=${mat}>
+            <g id="viewport" transform=${mat}>
             ${this.renderNodes()}
             ${this.renderSelectedNodes()}
             ${this.drawNodesSelectionBox()}
