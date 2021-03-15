@@ -73,19 +73,6 @@ const transformedBBox = (bbox: SVGRect, mat: DOMMatrix) => {
   return new DOMRect(left, top, right - left, bottom - top);
 }
 
-class SVGView{
-  root: HTMLElement
-  constructor(root:HTMLElement) {
-    this.root = root;
-  }
-
-  findSelectionBox() {
-  }
-
-  findNodeById(id: string) {
-  }
-}
-
 class Editor {
     drag: Observable<number>
     selection: Observable<SVGRect>
@@ -104,12 +91,13 @@ class Editor {
       this.selected = o(new Set<string>())
       this.nodes = o({})
       this.nodeIndex = o([])
+
       this.nodeIndexCache = []
       this.nodeCache = {}
-      for (let xIdx = 0; xIdx < 20; xIdx++) {
+      for (let xIdx = 0; xIdx < 40; xIdx++) {
         for (let yIdx = 0; yIdx < 40; yIdx++) {
-          this.nodeIndexCache.push(`${xIdx}_${yIdx}`)
-          this.nodeCache[`${xIdx}_${yIdx}`] = new ViewNode(xIdx * 10, yIdx * 10, 8, 8, '#fff');
+          this.nodeIndexCache.push(`n${xIdx}_${yIdx}`)
+          this.nodeCache[`n${xIdx}_${yIdx}`] = new ViewNode(xIdx * 10, yIdx * 10, 8, 8, '#fff');
         }
       }
       this.nodes(this.nodeCache);
@@ -122,20 +110,24 @@ class Editor {
       this.bindEvents()
     }
 
-    getSelectionNode(){
-      return this.rootNode.querySelector('#selection');
+    getSelectionNode() {
+      return this.rootNode.querySelector('.selection');
     }
 
-    getViewportNode(){
+    getViewportNode() {
       return this.rootNode.querySelector('#viewport') as SVGGraphicsElement;
     }
 
-    getNode(id:string){
-      return this.rootNode.querySelector('#'+id);
+    getNode(id:string) {
+      return this.rootNode.querySelector('#' + id);
     }
 
-    getNodeList(){
-      return Array.from(this.rootNode.querySelectorAll(':scope > .node'));
+    getNodeList() {
+      return Array.from(this.rootNode.querySelectorAll('.node'));
+    }
+
+    getRubberSelection() {
+      return this.rootNode.querySelector('#rubber');
     }
 
     bindEvents() {
@@ -147,9 +139,10 @@ class Editor {
           } else {
             this.drag(ev.button);
             const v = this.viewport()
-            const ctm = this.getViewportNode.getCTM().inverse()
+            const ctm = this.getViewportNode().getCTM().inverse()
             if (ctm) {
-              this.selected().forEach((e) => {
+              const selected = this.selected()
+              selected.forEach((e) => {
                 const node = (this.getNode(e) as SVGGraphicsElement)
                 if (node) {
                   const mt = ctm.multiply(node.getCTM())
@@ -159,7 +152,9 @@ class Editor {
                 }
               });
             }
-            this.selected(new Set())
+            this.selected(new Set<string>())
+            this.selectionBox(new ViewNode(0, 0, 0, 0))
+
             const rect = this.rootNode?.getBoundingClientRect();
             if (rect) {
               this.selection(new DOMRect(ev.x, ev.y - 50, 0, 0))
@@ -195,22 +190,23 @@ class Editor {
         }
 
         if (ev.type == 'UP') {
-          const elements = document.querySelector('#svg-root g')
-          const r = document.querySelector('#rubber');
           if (ev.button == 1) {
+            const r = this.getRubberSelection();
             if (r) {
               const s = r.getBoundingClientRect();
-              const selectedNodes = this.getNodeList().reduce((accumulator, n) => {
+              const nodeList = this.getNodeList();
+              const selectedNodes = nodeList.reduce((accumulator, n) => {
                 if (collide(s, n.getBoundingClientRect())) {
                   accumulator.add(n.id);
                 }
                 return accumulator;
               }, new Set<string>())
-              if (selectedNodes) {
+              if (selectedNodes.size) {
                 this.selected(selectedNodes)
                 this.updateSelectionBox();
               } else {
                 this.selected(new Set<string>());
+                this.selectionBox(new ViewNode(0, 0, 0, 0))
               }
             }
           }
@@ -235,7 +231,8 @@ class Editor {
     renderNodes() {
       const nodes = this.nodes()
       const selected = this.selected();
-      const nonSelected = o(this.nodeIndex().filter((n) => !selected.has(n)))
+      const nodeIndex = this.nodeIndex()
+      const nonSelected = o(nodeIndex.filter((n) => !selected.has(n)))
       return map(nonSelected, (n) => {
         const v = nodes[n];
         return svg`<rect id=${n} class="node" x=${v.x} y=${v.y} transform=${v.mat} width=${v.width} height=${v.height} fill=${v.fill} />`
@@ -245,7 +242,8 @@ class Editor {
     renderSelectedNodes() {
       const nodes = this.nodes()
       const selected = this.selected();
-      const nonSelected = o(this.nodeIndex().filter((n) => selected.has(n)))
+      const nodeIndex = this.nodeIndex()
+      const nonSelected = o(nodeIndex.filter((n) => selected.has(n)))
       const selectedList = map(nonSelected, (n) => {
         const v = nodes[n];
         return svg`<rect id=${n} class="node" x=${v.x} y=${v.y} transform=${v.mat} width=${v.width} height=${v.height} fill=${v.fill} />`
@@ -284,7 +282,8 @@ class Editor {
       let bottom = Number.MIN_SAFE_INTEGER;
       let right = Number.MIN_SAFE_INTEGER;
 
-      this.selected().forEach((v) => {
+      const selected = this.selected();
+      selected.forEach((v) => {
         const node = document.getElementById(v);
         if (node) {
           const svgNode = node as SVGGraphicsElement;
