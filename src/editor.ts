@@ -50,7 +50,9 @@ class ViewNode {
   width: number;
   height: number;
   fill: string;
-  constructor(x:number, y:number, width:number, height:number, fill:string) {
+  mat: DOMMatrix
+  constructor(x = 0, y = 0, width = 0, height = 0, fill = '') {
+    this.mat = new DOMMatrix()
     this.x = x;
     this.y = y;
     this.height = height;
@@ -58,41 +60,44 @@ class ViewNode {
     this.fill = fill;
   }
 }
+
+const transformedBBox = (bbox: SVGRect, mat: DOMMatrix) => {
+  const tl = mat.transformPoint(new DOMPoint(bbox.x, bbox.y));
+  const br = mat.transformPoint(new DOMPoint(bbox.x + bbox.width, bbox.y + bbox.height));
+  const tr = mat.transformPoint(new DOMPoint(bbox.x + bbox.width, bbox.y));
+  const bl = mat.transformPoint(new DOMPoint(bbox.x, bbox.y + bbox.height));
+  const top = Math.min(tl.y, br.y, tr.y, bl.y);
+  const left = Math.min(tl.x, br.x, tr.x, bl.x);
+  const bottom = Math.max(tl.y, br.y, tr.y, bl.y);
+  const right = Math.max(tl.x, br.x, tr.x, bl.x);
+  return new DOMRect(left, top, right - left, bottom - top);
+}
+
 class Editor {
     drag: Observable<number>
     selection: Observable<SVGRect>
+    selectionBox: Observable<ViewNode>
     selected: Observable<Set<string>>
     nodeIndex:Observable<Array<string>>
-<<<<<<< HEAD
-    nodes: Observable<Record<string, ViewNode>>
-=======
     nodeIndexCache:Array<string>
     nodes: Observable<Record<string, ViewNode>>
     nodeCache: Record<string, ViewNode>
->>>>>>> f02b19558a6c54c9dd69f43a965ab0681cc1dbf3
     viewport: Observable<Viewport>
     rootNode: Element
     pointerEvent: rxjs.Observable<PointerEvent>
 
     constructor(root:Element) {
+      this.selectionBox = o(new ViewNode())
       this.selected = o(new Set<string>())
       this.nodes = o({})
       this.nodeIndex = o([])
-<<<<<<< HEAD
-      const nodeIndex = []
-      const nodes = {}
-      for (let xIdx = 0; xIdx < 40; xIdx++) {
-        for (let yIdx = 0; yIdx < 40; yIdx++) {
-          nodeIndex.push(`${xIdx}-${yIdx}`)
-          nodes[`${xIdx}-${yIdx}`] = new ViewNode(xIdx * 10, yIdx * 10, 8, 8, '#fff');
-=======
+
       this.nodeIndexCache = []
       this.nodeCache = {}
-      for (let xIdx = 0; xIdx < 20; xIdx++) {
+      for (let xIdx = 0; xIdx < 40; xIdx++) {
         for (let yIdx = 0; yIdx < 40; yIdx++) {
-          this.nodeIndexCache.push(`${xIdx}-${yIdx}`)
-          this.nodeCache[`${xIdx}-${yIdx}`] = new ViewNode(xIdx * 10, yIdx * 10, 8, 8, '#fff');
->>>>>>> f02b19558a6c54c9dd69f43a965ab0681cc1dbf3
+          this.nodeIndexCache.push(`${xIdx}_${yIdx}`)
+          this.nodeCache[`${xIdx}_${yIdx}`] = new ViewNode(xIdx * 10, yIdx * 10, 8, 8, '#fff');
         }
       }
       this.nodes(this.nodeCache);
@@ -111,22 +116,38 @@ class Editor {
           const selectionBox = document.querySelector('#svg-root g > .selection');
           if (selectionBox && inside(ev.x, ev.y, selectionBox.getBoundingClientRect())) {
             this.drag(100);
-            console.log('HERE')
           } else {
             this.drag(ev.button);
+            const v = this.viewport()
+            const ctm = (document.querySelector('#canvas') as SVGGraphicsElement).getCTM().inverse()
+            if (ctm) {
+              const selected = this.selected();
+              selected.forEach((e) => {
+                const node = (document.getElementById(e) as SVGGraphicsElement)
+                if (node) {
+                  const mt = ctm.multiply(node.getCTM())
+                  if (mt) {
+                    this.nodeCache[e].mat = (new DOMMatrix([mt.a, mt.b, mt.c, mt.d, mt.e, mt.f]))
+                  }
+                }
+              });
+            }
+            this.selected(new Set<string>())
+            this.selectionBox(new ViewNode(0, 0, 0, 0))
+
             const rect = this.rootNode?.getBoundingClientRect();
             if (rect) {
               this.selection(new DOMRect(ev.x, ev.y - 50, 0, 0))
             }
+            this.nodes(this.nodeCache)
           }
         }
 
         if (this.drag() == 100 && ev.type == 'MOVE') {
-          for (var idx of Array.from(this.selected())) {
-            this.nodeCache[idx].x += ev.relX / this.viewport().scale;
-            this.nodeCache[idx].y += ev.relY / this.viewport().scale;
-          }
-          this.nodes(this.nodeCache);
+          var box = this.selectionBox();
+          box.mat.translateSelf(ev.relX / this.viewport().scale, ev.relY / this.viewport().scale, 0)
+          this.selectionBox(box);
+          const selectionBox = document.querySelector('#svg-root g > .selection');
         }
 
         if (this.drag() == 1 && ev.type == 'MOVE') {
@@ -152,20 +173,22 @@ class Editor {
         if (ev.type == 'UP') {
           const elements = document.querySelector('#svg-root g')
           const r = document.querySelector('#rubber');
-          if (r && ev.button == 1) {
-            const s = r.getBoundingClientRect();
-            const selectedNodes = Array.from(elements?.querySelectorAll(':scope > .node')).reduce((accumulator, n) => {
-              if (n.classList.contains('selection') == false && collide(s, n.getBoundingClientRect())) {
-                accumulator.add(n.id);
+          if (ev.button == 1) {
+            if (r) {
+              const s = r.getBoundingClientRect();
+              const selectedNodes = Array.from(elements?.querySelectorAll(':scope > .node')).reduce((accumulator, n) => {
+                if (n.classList.contains('selection') == false && collide(s, n.getBoundingClientRect())) {
+                  accumulator.add(n.id);
+                }
+                return accumulator;
+              }, new Set<string>())
+              if (selectedNodes.size) {
+                this.selected(selectedNodes)
+                this.updateSelectionBox();
+              } else {
+                this.selected(new Set<string>());
+                this.selectionBox(new ViewNode(0, 0, 0, 0))
               }
-              return accumulator;
-            }, new Set<string>())
-            if (selectedNodes) {
-              this.selected(selectedNodes)
-                //this.selectedNodes(selectedNodes)
-            } else {
-              this.selected(new Set<string>());
-                //this.selectedNodes([])
             }
           }
           this.drag(0);
@@ -189,60 +212,91 @@ class Editor {
     renderNodes() {
       const nodes = this.nodes()
       const selected = this.selected();
-<<<<<<< HEAD
-      console.log(selected)
-=======
->>>>>>> f02b19558a6c54c9dd69f43a965ab0681cc1dbf3
-      return map(this.nodeIndex, (n) => {
+
+      const nonSelected = o(this.nodeIndex().filter((n) => !selected.has(n)))
+      return map(nonSelected, (n) => {
         const v = nodes[n];
-        if (selected.has(n)) {
-          return svg`<rect id=${n} class="node selected" x=${v.x} y=${v.y} width=${v.width} height=${v.height} fill=${v.fill} />`
-        } else {
-          return svg`<rect id=${n} class="node" x=${v.x} y=${v.y} width=${v.width} height=${v.height} fill=${v.fill} />`
-        }
+        return svg`<rect id=${n} class="node" x=${v.x} y=${v.y} transform=${v.mat} width=${v.width} height=${v.height} fill=${v.fill} />`
       });
     }
 
+    renderSelectedNodes() {
+      const nodes = this.nodes()
+      const selected = this.selected();
+      const nonSelected = o(this.nodeIndex().filter((n) => selected.has(n)))
+      const selectedList = map(nonSelected, (n) => {
+        const v = nodes[n];
+        return svg`<rect id=${n} class="node" x=${v.x} y=${v.y} transform=${v.mat} width=${v.width} height=${v.height} fill=${v.fill} />`
+      });
+
+      return svg`<g class="selected" transform=${this.selectionBox().mat}>${selectedList}</g>`
+    }
+
     drawNodesSelectionBox() {
-        return () => {
-          const elements = Array.from(document.querySelectorAll('.node.selected'))
-<<<<<<< HEAD
-          console.log('Elements', elements);
-=======
->>>>>>> f02b19558a6c54c9dd69f43a965ab0681cc1dbf3
-          if (elements.length > 0) {
-              const box = elements[0].getBBox();
-              let top = box.y;
-              let bottom = box.y + box.height;
-              let left = box.x;
-              let right = box.x + box.width;
-              elements.slice(1).forEach((e) => {
-                  const bbox = e.getBBox()
-                  top = Math.min(top, bbox.y);
-                  left = Math.min(left, bbox.x);
-                  bottom = Math.max(bottom, bbox.y + bbox.height);
-                  right = Math.max(right, bbox.x + bbox.width);
-              });
-              const v = this.viewport();
-              return svg`
-                  <rect  class="selection" x=${left - 4 / v.scale} y=${top - 4 / v.scale} width=${right - left + 8 / v.scale} height=${bottom - top + 8 / v.scale} 
-                  fill="none" stroke="#555" stroke-width="1" stroke-dasharray="3" vector-effect="non-scaling-stroke"
-                  ></rect>
-                  <rect x=${left - 8 / v.scale} y=${top - 8 / v.scale} width=${8 / v.scale} height=${8 / v.scale}  fill="#ccc" stroke="#000" vector-effect="non-scaling-stroke" />
-                  `
-          } else {
-              svg``
+      const { width, height } = this.selectionBox()
+      const box = this.selectionBox()
+      const left = box.x;
+      const top = box.y;
+      const right = left + box.width
+      const bottom = top + box.height;
+      const v = this.viewport()
+      if (this.selected().size > 0) {
+        return svg`
+        <rect  x=${left - 4 / v.scale} y=${top - 4 / v.scale} class="selection" width=${right - left + 8 / v.scale} transform=${box.mat} height=${bottom - top + 8 / v.scale} 
+              fill="none" stroke="#555" stroke-width="1" stroke-dasharray="3" vector-effect="non-scaling-stroke" />
+              <rect x=${left - 8 / v.scale} y=${top - 8 / v.scale} width=${8 / v.scale} height=${8 / v.scale} transform=${box.mat} fill="#ccc" stroke="#000" vector-effect="non-scaling-stroke" />
+              <rect x=${right} y=${top - 8 / v.scale} width=${8 / v.scale} height=${8 / v.scale} transform=${box.mat} fill="#ccc" stroke="#000" vector-effect="non-scaling-stroke" />
+              <rect x=${left - 8 / v.scale} y=${bottom} width=${8 / v.scale} height=${8 / v.scale} transform=${box.mat} fill="#ccc" stroke="#000" vector-effect="non-scaling-stroke" />
+              <rect x=${right} y=${bottom} width=${8 / v.scale} height=${8 / v.scale} transform=${box.mat} fill="#ccc" stroke="#000" vector-effect="non-scaling-stroke" />
+              
+              
+              `;
+      } else {
+        return svg``
+      }
+    }
+
+    updateSelectionBox() {
+      let top = Number.MAX_SAFE_INTEGER
+      let left = Number.MAX_SAFE_INTEGER;
+      let bottom = Number.MIN_SAFE_INTEGER;
+      let right = Number.MIN_SAFE_INTEGER;
+
+      const selected = this.selected();
+      selected.forEach((v) => {
+        const node = document.getElementById(v);
+        if (node) {
+          const svgNode = node as SVGGraphicsElement;
+          const ctm = svgNode.getCTM();
+          if (ctm) {
+            const mat = new DOMMatrix([ctm.a, ctm.b, ctm.c, ctm.d, ctm.e, ctm.f]);
+            const bbox = transformedBBox(svgNode.getBBox(), mat)
+            top = Math.min(top, bbox.top);
+            left = Math.min(left, bbox.left);
+            bottom = Math.max(bottom, bbox.bottom);
+            right = Math.max(right, bbox.right);
           }
-        };
-     }
+        }
+      });
+
+      if (bottom != top || left != right) {
+        const ctm = (document.querySelector('#canvas') as SVGGraphicsElement).getCTM()?.inverse()
+        if (ctm) {
+          const inversed = transformedBBox(new DOMRect(left, top, right - left, bottom - top), new DOMMatrix([ctm.a, ctm.b, ctm.c, ctm.d, ctm.e, ctm.f]));
+          this.selectionBox(new ViewNode(inversed.x, inversed.y, inversed.width, inversed.height));
+        }
+      }
+    }
 
     canvas() {
       return () => {
         const v = this.viewport();
+        const mat = new DOMMatrix(`scale(${v.scale},${v.scale}) translate(${v.x}px,${v.y}px)`)
         return svg`
         <svg oncontextmenu=${(e) => e.preventDefault()} id="svg-root" viewBox="0 0 1000 1000"  preserveAspectRatio="xMidYMid meet">
-            <g transform="scale(${v.scale},${v.scale}) translate(${v.x} ${v.y}) ">
+            <g id="canvas" transform=${mat}>
             ${this.renderNodes()}
+            ${this.renderSelectedNodes()}
             ${this.drawNodesSelectionBox()}
             </g>
             ${this.rubberSelection()}
