@@ -74,7 +74,7 @@ const transformedBBox = (bbox: SVGRect, mat: DOMMatrix) => {
 }
 
 class Editor {
-    drag: Observable<number>
+    drag: Observable<string>
     selection: Observable<SVGRect>
     selectionBox: Observable<ViewNode>
     selected: Observable<Set<string>>
@@ -103,7 +103,7 @@ class Editor {
       this.nodes(this.nodeCache);
       this.nodeIndex(this.nodeIndexCache)
       this.rootNode = root;
-      this.drag = o(0);
+      this.drag = o('');
       this.selection = o(new DOMRect());
       this.viewport = o(new Viewport({}));
       this.pointerEvent = PointerEventObservable(this.rootNode);
@@ -131,13 +131,11 @@ class Editor {
     }
 
     bindEvents() {
-        this.pointerEvent.subscribe((ev) => {
-        if (ev.type == 'DOWN') {
-          const selectionBox = this.getSelectionNode();
-          if (selectionBox && inside(ev.x, ev.y, selectionBox.getBoundingClientRect())) {
-            this.drag(100);
-          } else {
-            this.drag(ev.button);
+      this.pointerEvent.subscribe((ev) => {
+        const drag = this.drag();
+        if (drag.length == 0 && ev.type == 'DOWN') {
+          if (ev.button == 1) {
+            this.drag('rubber');
             const v = this.viewport()
             const ctm = this.getViewportNode().getCTM().inverse()
             if (ctm) {
@@ -154,27 +152,28 @@ class Editor {
             }
             this.selected(new Set<string>())
             this.selectionBox(new ViewNode(0, 0, 0, 0))
-
             const rect = this.rootNode?.getBoundingClientRect();
             if (rect) {
               this.selection(new DOMRect(ev.x, ev.y - 50, 0, 0))
             }
             this.nodes(this.nodeCache)
+          } else if (ev.button == 3) {
+            this.drag('movement')
           }
         }
 
-        if (this.drag() == 100 && ev.type == 'MOVE') {
+        if (drag == 'selection' && ev.type == 'MOVE') {
           var box = this.selectionBox();
           box.mat.translateSelf(ev.relX / this.viewport().scale, ev.relY / this.viewport().scale, 0)
           this.selectionBox(box);
         }
 
-        if (this.drag() == 1 && ev.type == 'MOVE') {
+        if (drag == 'rubber' && ev.type == 'MOVE') {
           const c = this.selection();
           this.selection(new DOMRect(c.x, c.y, c.width + ev.relX, c.height + ev.relY))
         }
 
-        if (this.drag() == 3 && ev.type == 'MOVE') {
+        if (drag == 'movement' && ev.type == 'MOVE') {
           const cv = this.viewport();
           this.viewport({ x: cv.x + ev.relX / cv.scale, y: cv.y + ev.relY / cv.scale, scale: cv.scale })
         }
@@ -190,7 +189,7 @@ class Editor {
         }
 
         if (ev.type == 'UP') {
-          if (ev.button == 1) {
+          if (ev.button == 1 && this.drag) {
             const r = this.getRubberSelection();
             if (r) {
               const s = r.getBoundingClientRect();
@@ -210,13 +209,14 @@ class Editor {
               }
             }
           }
-          this.drag(0);
+          console.log('Undrag')
+          this.drag('');
         }
       })
     }
 
     rubberSelection() {
-        if (this.drag() == 1) {
+        if (this.drag() == 'rubber') {
             const v = this.selection();
             return () => svg`<path id="rubber" fill="#7dd5" stroke="#affc" d="m${v.x} ${v.y} h${v.width} v${v.height} h${-v.width} z"></path>`
         } else {
@@ -253,7 +253,6 @@ class Editor {
     }
 
     drawNodesSelectionBox() {
-      const { width, height } = this.selectionBox()
       const box = this.selectionBox()
       const left = box.x;
       const top = box.y;
@@ -261,15 +260,14 @@ class Editor {
       const bottom = top + box.height;
       const v = this.viewport()
       if (this.selected().size > 0) {
+        console.log('redrawing')
         return svg`
         <rect  x=${left - 4 / v.scale} y=${top - 4 / v.scale} class="selection" width=${right - left + 8 / v.scale} transform=${box.mat} height=${bottom - top + 8 / v.scale} 
-              fill="none" stroke="#555" stroke-width="1" stroke-dasharray="3" vector-effect="non-scaling-stroke" />
-              <rect x=${left - 8 / v.scale} y=${top - 8 / v.scale} width=${8 / v.scale} height=${8 / v.scale} transform=${box.mat} fill="#ccc" stroke="#000" vector-effect="non-scaling-stroke" />
-              <rect x=${right} y=${top - 8 / v.scale} width=${8 / v.scale} height=${8 / v.scale} transform=${box.mat} fill="#ccc" stroke="#000" vector-effect="non-scaling-stroke" />
-              <rect x=${left - 8 / v.scale} y=${bottom} width=${8 / v.scale} height=${8 / v.scale} transform=${box.mat} fill="#ccc" stroke="#000" vector-effect="non-scaling-stroke" />
-              <rect x=${right} y=${bottom} width=${8 / v.scale} height=${8 / v.scale} transform=${box.mat} fill="#ccc" stroke="#000" vector-effect="non-scaling-stroke" />
-              
-              
+              fill="#fff0" stroke="#555" stroke-width="1" stroke-dasharray="3" vector-effect="non-scaling-stroke" />
+              <rect  x=${left - 8 / v.scale} y=${top - 8 / v.scale} width=${8 / v.scale} height=${8 / v.scale} transform=${box.mat} fill="#ccc" stroke="#000" vector-effect="non-scaling-stroke" />
+              <rect  x=${right} y=${top - 8 / v.scale} width=${8 / v.scale} height=${8 / v.scale} transform=${box.mat} fill="#ccc" stroke="#000" vector-effect="non-scaling-stroke" />
+              <rect  x=${left - 8 / v.scale} y=${bottom} width=${8 / v.scale} height=${8 / v.scale} transform=${box.mat} fill="#ccc" stroke="#000" vector-effect="non-scaling-stroke" />
+              <rect  x=${right} y=${bottom} width=${8 / v.scale} height=${8 / v.scale} transform=${box.mat} fill="#ccc" stroke="#000" vector-effect="non-scaling-stroke" />
               `;
       } else {
         return svg``
@@ -308,12 +306,21 @@ class Editor {
       }
     }
 
+    processDown(e:Event) {
+      const target = e.target as SVGGraphicsElement
+      if (target.classList.contains('selection')) {
+        this.drag('selection')
+      }
+
+      return false;
+    }
+
     canvas() {
       return () => {
         const v = this.viewport();
         const mat = new DOMMatrix(`scale(${v.scale},${v.scale}) translate(${v.x}px,${v.y}px)`)
         return svg`
-        <svg oncontextmenu=${(e) => e.preventDefault()} id="svg-root" viewBox="0 0 1000 1000"  preserveAspectRatio="xMidYMid meet">
+        <svg onpointerdown=${(e) => this.processDown(e)} oncontextmenu=${(e) => e.preventDefault()} id="svg-root" viewBox="0 0 1000 1000"  preserveAspectRatio="xMidYMid meet">
             <g id="viewport" transform=${mat}>
             ${this.renderNodes()}
             ${this.renderSelectedNodes()}

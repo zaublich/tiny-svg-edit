@@ -26,8 +26,8 @@ const PointerEventObservable = (node) => new Observable<PointerEvent>(subscriber
       subscriber.next({ type: 'DOWN', button: e.button + 1, x: e.clientX - node.getBoundingClientRect().x, y: e.clientY - node.getBoundingClientRect().y, relX: e.pageX - pointerPos.x, relY: e.pageY - pointerPos.y })
       pointerPos.x = e.pageX;
       pointerPos.y = e.pageY;
-      e.stopPropagation()
-      e.preventDefault()
+      //e.stopPropagation()
+      //e.preventDefault()
     });
 
     window.addEventListener('pointerup', (e) => {
