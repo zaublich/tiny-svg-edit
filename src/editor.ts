@@ -61,11 +61,11 @@ class ViewNode {
   }
 }
 
-const transformedBBox = (bbox: SVGRect, mat: DOMMatrix) => {
-  const tl = mat.transformPoint(new DOMPoint(bbox.x, bbox.y));
-  const br = mat.transformPoint(new DOMPoint(bbox.x + bbox.width, bbox.y + bbox.height));
-  const tr = mat.transformPoint(new DOMPoint(bbox.x + bbox.width, bbox.y));
-  const bl = mat.transformPoint(new DOMPoint(bbox.x, bbox.y + bbox.height));
+const transformedBBox = (bbox: SVGRect, mat: SVGMatrix) => {
+  const tl = (new DOMPoint(bbox.x, bbox.y)).matrixTransform(mat);
+  const tr = (new DOMPoint(bbox.x + bbox.width, bbox.y)).matrixTransform(mat);
+  const bl = (new DOMPoint(bbox.x, bbox.y + bbox.height)).matrixTransform(mat);
+  const br = (new DOMPoint(bbox.x + bbox.width, bbox.y + bbox.height)).matrixTransform(mat);
   const top = Math.min(tl.y, br.y, tr.y, bl.y);
   const left = Math.min(tl.x, br.x, tr.x, bl.x);
   const bottom = Math.max(tl.y, br.y, tr.y, bl.y);
@@ -145,7 +145,7 @@ class Editor {
                 if (node) {
                   const mt = ctm.multiply(node.getCTM())
                   if (mt) {
-                    this.nodeCache[e].mat = (new DOMMatrix([mt.a, mt.b, mt.c, mt.d, mt.e, mt.f]))
+                    this.nodeCache[e].mat = new DOMMatrix([mt.a, mt.b, mt.c, mt.d, mt.e, mt.f]);
                   }
                 }
               });
@@ -165,6 +165,11 @@ class Editor {
         if (drag == 'selection' && ev.type == 'MOVE') {
           var box = this.selectionBox();
           box.mat.translateSelf(ev.relX / this.viewport().scale, ev.relY / this.viewport().scale, 0)
+          this.selectionBox(box);
+        }
+        if (drag == 'br-resize' && ev.type == 'MOVE') {
+          box = this.selectionBox();
+          box.mat.scaleSelf(1.05, 1.05, 1.0, box.x, box.y, 0);
           this.selectionBox(box);
         }
 
@@ -254,21 +259,20 @@ class Editor {
 
     drawNodesSelectionBox() {
       const box = this.selectionBox()
-      const left = box.x;
-      const top = box.y;
-      const right = left + box.width
-      const bottom = top + box.height;
+      const rect = transformedBBox(new DOMRect(box.x, box.y, box.width, box.height), box.mat);
+      const left = rect.left;
+      const top = rect.top;
+      const right = rect.right;
+      const bottom = rect.bottom;
       const v = this.viewport()
       if (this.selected().size > 0) {
         console.log('redrawing')
-        return svg`
-        <rect  x=${left - 4 / v.scale} y=${top - 4 / v.scale} class="selection" width=${right - left + 8 / v.scale} transform=${box.mat} height=${bottom - top + 8 / v.scale} 
+        return svg` <rect  x=${left - 4 / v.scale} y=${top - 4 / v.scale} class="selection" width=${right - left + 8 / v.scale} height=${bottom - top + 8 / v.scale} 
               fill="#fff0" stroke="#555" stroke-width="1" stroke-dasharray="3" vector-effect="non-scaling-stroke" />
-              <rect  x=${left - 8 / v.scale} y=${top - 8 / v.scale} width=${8 / v.scale} height=${8 / v.scale} transform=${box.mat} fill="#ccc" stroke="#000" vector-effect="non-scaling-stroke" />
-              <rect  x=${right} y=${top - 8 / v.scale} width=${8 / v.scale} height=${8 / v.scale} transform=${box.mat} fill="#ccc" stroke="#000" vector-effect="non-scaling-stroke" />
-              <rect  x=${left - 8 / v.scale} y=${bottom} width=${8 / v.scale} height=${8 / v.scale} transform=${box.mat} fill="#ccc" stroke="#000" vector-effect="non-scaling-stroke" />
-              <rect  x=${right} y=${bottom} width=${8 / v.scale} height=${8 / v.scale} transform=${box.mat} fill="#ccc" stroke="#000" vector-effect="non-scaling-stroke" />
-              `;
+          <rect class="tl-resize" x=${left - 8 / v.scale} y=${top - 8 / v.scale} width=${8 / v.scale} height=${8 / v.scale} fill="#ccc" stroke="#f00" vector-effect="non-scaling-stroke" />
+          <rect class="tr-resize" x=${right} y=${top - 8 / v.scale} width=${8 / v.scale} height=${8 / v.scale} fill="#ccc" stroke="#000" vector-effect="non-scaling-stroke" />
+          <rect class="bl-resize" x=${left - 8 / v.scale} y=${bottom} width=${8 / v.scale} height=${8 / v.scale} fill="#ccc" stroke="#000" vector-effect="non-scaling-stroke" />
+          <rect class="br-resize" x=${right} y=${bottom} width=${8 / v.scale} height=${8 / v.scale} fill="#ccc" stroke="#000" vector-effect="non-scaling-size" />`;
       } else {
         return svg``
       }
@@ -287,8 +291,7 @@ class Editor {
           const svgNode = node as SVGGraphicsElement;
           const ctm = svgNode.getCTM();
           if (ctm) {
-            const mat = new DOMMatrix([ctm.a, ctm.b, ctm.c, ctm.d, ctm.e, ctm.f]);
-            const bbox = transformedBBox(svgNode.getBBox(), mat)
+            const bbox = transformedBBox(svgNode.getBBox(), ctm)
             top = Math.min(top, bbox.top);
             left = Math.min(left, bbox.left);
             bottom = Math.max(bottom, bbox.bottom);
@@ -300,7 +303,7 @@ class Editor {
       if (bottom != top || left != right) {
         const ctm = this.getViewportNode().getCTM()?.inverse()
         if (ctm) {
-          const inversed = transformedBBox(new DOMRect(left, top, right - left, bottom - top), new DOMMatrix([ctm.a, ctm.b, ctm.c, ctm.d, ctm.e, ctm.f]));
+          const inversed = transformedBBox(new DOMRect(left, top, right - left, bottom - top), ctm);
           this.selectionBox(new ViewNode(inversed.x, inversed.y, inversed.width, inversed.height));
         }
       }
@@ -308,6 +311,11 @@ class Editor {
 
     processDown(e:Event) {
       const target = e.target as SVGGraphicsElement
+
+      if (target.classList.contains('br-resize')) {
+        this.drag('br-resize')
+      }
+
       if (target.classList.contains('selection')) {
         this.drag('selection')
       }
