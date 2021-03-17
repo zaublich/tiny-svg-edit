@@ -136,20 +136,6 @@ class Editor {
         if (drag.length == 0 && ev.type == 'DOWN') {
           if (ev.button == 1) {
             this.drag('rubber');
-            const v = this.viewport()
-            const ctm = this.getViewportNode().getCTM().inverse()
-            if (ctm) {
-              const selected = this.selected()
-              selected.forEach((e) => {
-                const node = (this.getNode(e) as SVGGraphicsElement)
-                if (node) {
-                  const mt = ctm.multiply(node.getCTM())
-                  if (mt) {
-                    this.nodeCache[e].mat = new DOMMatrix([mt.a, mt.b, mt.c, mt.d, mt.e, mt.f]);
-                  }
-                }
-              });
-            }
             this.selected(new Set<string>())
             this.selectionBox(new ViewNode(0, 0, 0, 0))
             const rect = this.rootNode?.getBoundingClientRect();
@@ -214,7 +200,25 @@ class Editor {
               }
             }
           }
-          console.log('Undrag')
+
+          const v = this.viewport()
+          const ctm = this.getViewportNode().getCTM().inverse()
+          if (ctm) {
+            const selected = this.selected()
+            selected.forEach((e) => {
+              const node = (this.getNode(e) as SVGGraphicsElement)
+              if (node) {
+                const mt = ctm.multiply(node.getCTM())
+                if (mt) {
+                  this.nodeCache[e].mat = new DOMMatrix([mt.a, mt.b, mt.c, mt.d, mt.e, mt.f]);
+                }
+              }
+            });
+          }
+
+          const box = this.selectionBox()
+          const rect = transformedBBox(new DOMRect(box.x, box.y, box.width, box.height), box.mat);
+          this.selectionBox(new ViewNode(rect.x, rect.y, rect.width, rect.height))
           this.drag('');
         }
       })
