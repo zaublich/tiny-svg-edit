@@ -130,6 +130,18 @@ class Editor {
       return this.rootNode.querySelector('#rubber');
     }
 
+    resizeSelection(relX:number, relY:number, originX:number, originY:number) {
+      const box = this.selectionBox();
+      const tbox = transformedBBox(new DOMRect(box.x, box.y, box.width, box.height), box.mat)
+      const cv = this.viewport();
+      const scaleX = (tbox.width + relX / cv.scale) / tbox.width;
+      const scaleY = (tbox.height + relY / cv.scale) / tbox.height;
+      if (scaleX > 0 && scaleY > 0) {
+        box.mat.scaleSelf(scaleX, scaleY, 1.0, tbox.x - originX * tbox.width, tbox.y - originY * tbox.height, 0);
+        this.selectionBox(box);
+      }
+    }
+
     bindEvents() {
       this.pointerEvent.subscribe((ev) => {
         const drag = this.drag();
@@ -153,10 +165,21 @@ class Editor {
           box.mat.translateSelf(ev.relX / this.viewport().scale, ev.relY / this.viewport().scale, 0)
           this.selectionBox(box);
         }
+
         if (drag == 'br-resize' && ev.type == 'MOVE') {
-          box = this.selectionBox();
-          box.mat.scaleSelf(1.05, 1.05, 1.0, box.x, box.y, 0);
-          this.selectionBox(box);
+          this.resizeSelection(ev.relX, ev.relY, 0, 0);
+        }
+
+        if (drag == 'tl-resize' && ev.type == 'MOVE') {
+          this.resizeSelection(-ev.relX, -ev.relY, -1, -1);
+        }
+
+        if (drag == 'bl-resize' && ev.type == 'MOVE') {
+          this.resizeSelection(-ev.relX, ev.relY, -1, 0);
+        }
+
+        if (drag == 'tr-resize' && ev.type == 'MOVE') {
+          this.resizeSelection(ev.relX, -ev.relY, 0, -1);
         }
 
         if (drag == 'rubber' && ev.type == 'MOVE') {
@@ -270,7 +293,6 @@ class Editor {
       const bottom = rect.bottom;
       const v = this.viewport()
       if (this.selected().size > 0) {
-        console.log('redrawing')
         return svg` <rect  x=${left - 4 / v.scale} y=${top - 4 / v.scale} class="selection" width=${right - left + 8 / v.scale} height=${bottom - top + 8 / v.scale} 
               fill="#fff0" stroke="#555" stroke-width="1" stroke-dasharray="3" vector-effect="non-scaling-stroke" />
           <rect class="tl-resize" x=${left - 8 / v.scale} y=${top - 8 / v.scale} width=${8 / v.scale} height=${8 / v.scale} fill="#ccc" stroke="#f00" vector-effect="non-scaling-stroke" />
@@ -318,6 +340,18 @@ class Editor {
 
       if (target.classList.contains('br-resize')) {
         this.drag('br-resize')
+      }
+
+      if (target.classList.contains('tl-resize')) {
+        this.drag('tl-resize')
+      }
+
+      if (target.classList.contains('tr-resize')) {
+        this.drag('tr-resize')
+      }
+
+      if (target.classList.contains('bl-resize')) {
+        this.drag('bl-resize')
       }
 
       if (target.classList.contains('selection')) {
