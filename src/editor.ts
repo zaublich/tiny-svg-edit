@@ -44,6 +44,15 @@ class Viewport {
     }
 }
 
+class ControlPoint{
+  point: DOMPoint
+  refPoint: string | null
+  constructor(point:DOMPoint, refPoint=null) {
+    this.point = point;
+    this.refPoint = refPoint;
+  }
+}
+
 class ViewNode {
   x: number;
   y: number;
@@ -51,6 +60,7 @@ class ViewNode {
   height: number;
   fill: string;
   mat: DOMMatrix
+  
   constructor(x = 0, y = 0, width = 0, height = 0, fill = '') {
     this.mat = new DOMMatrix()
     this.x = x;
@@ -78,18 +88,22 @@ class Editor {
     selection: Observable<SVGRect>
     selectionBox: Observable<ViewNode>
     selected: Observable<Set<string>>
+    focusedNode: Observable<string|null>
     nodeIndex:Observable<Array<string>>
     nodeIndexCache:Array<string>
     nodes: Observable<Record<string, ViewNode>>
     nodeCache: Record<string, ViewNode>
     viewport: Observable<Viewport>
+    rotation: Observable<DOMPoint>
     rootNode: Element
     pointerEvent: rxjs.Observable<PointerEvent>
 
     constructor(root:Element) {
+      this.rotation = o(new DOMPoint())
       this.selectionBox = o(new ViewNode())
       this.selected = o(new Set<string>())
       this.nodes = o({})
+      this.focusedNode = o(null)
       this.nodeIndex = o([])
 
       this.nodeIndexCache = []
@@ -134,8 +148,15 @@ class Editor {
       const box = this.selectionBox();
       const tbox = transformedBBox(new DOMRect(box.x, box.y, box.width, box.height), box.mat)
       const cv = this.viewport();
-      const scaleX = (tbox.width + relX / cv.scale) / tbox.width;
-      const scaleY = (tbox.height + relY / cv.scale) / tbox.height;
+      let scaleX = (tbox.width + relX / cv.scale) / tbox.width;
+      let scaleY = (tbox.height + relY / cv.scale) / tbox.height;
+
+      if (scaleX < 1) {
+        scaleX = scaleY = Math.min(scaleX, scaleY);
+      } else {
+        scaleX = scaleY = Math.max(scaleX, scaleY);
+      }
+
       if (scaleX > 0 && scaleY > 0) {
         box.mat.scaleSelf(scaleX, scaleY, 1.0, tbox.x - originX * tbox.width, tbox.y - originY * tbox.height, 0);
         this.selectionBox(box);
@@ -160,36 +181,53 @@ class Editor {
           }
         }
 
-        if (drag == 'selection' && ev.type == 'MOVE') {
-          var box = this.selectionBox();
-          box.mat.translateSelf(ev.relX / this.viewport().scale, ev.relY / this.viewport().scale, 0)
-          this.selectionBox(box);
-        }
-
-        if (drag == 'br-resize' && ev.type == 'MOVE') {
-          this.resizeSelection(ev.relX, ev.relY, 0, 0);
-        }
-
-        if (drag == 'tl-resize' && ev.type == 'MOVE') {
-          this.resizeSelection(-ev.relX, -ev.relY, -1, -1);
-        }
-
-        if (drag == 'bl-resize' && ev.type == 'MOVE') {
-          this.resizeSelection(-ev.relX, ev.relY, -1, 0);
-        }
-
-        if (drag == 'tr-resize' && ev.type == 'MOVE') {
-          this.resizeSelection(ev.relX, -ev.relY, 0, -1);
-        }
-
-        if (drag == 'rubber' && ev.type == 'MOVE') {
-          const c = this.selection();
-          this.selection(new DOMRect(c.x, c.y, c.width + ev.relX, c.height + ev.relY))
-        }
-
-        if (drag == 'movement' && ev.type == 'MOVE') {
-          const cv = this.viewport();
-          this.viewport({ x: cv.x + ev.relX / cv.scale, y: cv.y + ev.relY / cv.scale, scale: cv.scale })
+        if (ev.type == 'MOVE') {
+          switch (drag) {
+            case 'angle': {
+              const old = new DOMPoint(this.rotation().x, this.rotation().y)
+              const oldAngle = Math.atan2(old.y, old.x);
+              this.rotation(new DOMPoint(old.x + ev.relX, old.y + ev.relY))
+              const box = this.selectionBox()
+              const angle = Math.atan2(this.rotation().y, this.rotation().x);
+              box.mat.translateSelf(box.x + box.width / 2, box.y + box.height / 2);
+              box.mat.rotateSelf(0, 0.0, (angle - oldAngle) * 180 / Math.PI);
+              box.mat.translateSelf(-(box.x + box.width / 2), -(box.y + box.height / 2))
+              this.selectionBox(box);
+              break;
+            }
+            case 'selection': {
+              const box = this.selectionBox();
+              box.mat.translateSelf(ev.relX / this.viewport().scale, ev.relY / this.viewport().scale, 0)
+              this.selectionBox(box);
+              break;
+            }
+            case 'br-resize': {
+              this.resizeSelection(ev.relX, ev.relY, 0, 0);
+              break;
+            }
+            case 'tl-resize': {
+              this.resizeSelection(-ev.relX, -ev.relY, -1, -1);
+              break;
+            }
+            case 'bl-resize': {
+              this.resizeSelection(-ev.relX, ev.relY, -1, 0);
+              break;
+            }
+            case 'tr-resize': {
+              this.resizeSelection(ev.relX, -ev.relY, 0, -1);
+              break;
+            }
+            case 'rubber': {
+              const c = this.selection();
+              this.selection(new DOMRect(c.x, c.y, c.width + ev.relX, c.height + ev.relY))
+              break;
+            }
+            case 'movement': {
+              const cv = this.viewport();
+              this.viewport({ x: cv.x + ev.relX / cv.scale, y: cv.y + ev.relY / cv.scale, scale: cv.scale })
+              break;
+            }
+          }
         }
 
         if (ev.type == 'SCROLL') {
@@ -203,23 +241,27 @@ class Editor {
         }
 
         if (ev.type == 'UP') {
-          if (ev.button == 1 && this.drag) {
-            const r = this.getRubberSelection();
-            if (r) {
-              const s = r.getBoundingClientRect();
-              const nodeList = this.getNodeList();
-              const selectedNodes = nodeList.reduce((accumulator, n) => {
-                if (collide(s, n.getBoundingClientRect())) {
-                  accumulator.add(n.id);
+          if (ev.button == 1) {
+            if (drag == 'angle') {
+              this.rotation(new DOMPoint(0, 0));
+            } else {
+              const r = this.getRubberSelection();
+              if (r) {
+                const s = r.getBoundingClientRect();
+                const nodeList = this.getNodeList();
+                const selectedNodes = nodeList.reduce((accumulator, n) => {
+                  if (collide(s, n.getBoundingClientRect())) {
+                    accumulator.add(n.id);
+                  }
+                  return accumulator;
+                }, new Set<string>())
+                if (selectedNodes.size) {
+                  this.selected(selectedNodes)
+                  this.updateSelectionBox();
+                } else {
+                  this.selected(new Set<string>());
+                  this.selectionBox(new ViewNode(0, 0, 0, 0))
                 }
-                return accumulator;
-              }, new Set<string>())
-              if (selectedNodes.size) {
-                this.selected(selectedNodes)
-                this.updateSelectionBox();
-              } else {
-                this.selected(new Set<string>());
-                this.selectionBox(new ViewNode(0, 0, 0, 0))
               }
             }
           }
@@ -281,7 +323,40 @@ class Editor {
         return svg`<rect id=${n} class="node" x=${v.x} y=${v.y} transform=${v.mat} width=${v.width} height=${v.height} fill=${v.fill} />`
       });
 
-      return svg`<g class="selected" transform=${this.selectionBox().mat}>${selectedList}</g>`
+      return svg`<g class="selected" transform-origion="center" transform=${this.selectionBox().mat}>${selectedList}</g>`
+    }
+
+    processDown(e:Event) {
+      const target = e.target as SVGGraphicsElement
+      if (target.classList.contains('node')) {
+        this.focusedNode(target.id) 
+      } else {
+        if (target.classList.contains('br-resize')) {
+          this.drag('br-resize')
+        }
+
+        if (target.classList.contains('angle')) {
+          this.drag('angle')
+        }
+
+        if (target.classList.contains('tl-resize')) {
+          this.drag('tl-resize')
+        }
+
+        if (target.classList.contains('tr-resize')) {
+          this.drag('tr-resize')
+        }
+
+        if (target.classList.contains('bl-resize')) {
+          this.drag('bl-resize')
+        }
+
+        if (target.classList.contains('selection')) {
+          this.drag('selection')
+        }
+      }
+      e.preventDefault();
+      return false;
     }
 
     drawNodesSelectionBox() {
@@ -293,12 +368,13 @@ class Editor {
       const bottom = rect.bottom;
       const v = this.viewport()
       if (this.selected().size > 0) {
-        return svg` <rect  x=${left - 4 / v.scale} y=${top - 4 / v.scale} class="selection" width=${right - left + 8 / v.scale} height=${bottom - top + 8 / v.scale} 
-              fill="#fff0" stroke="#555" stroke-width="1" stroke-dasharray="3" vector-effect="non-scaling-stroke" />
-          <rect class="tl-resize" x=${left - 8 / v.scale} y=${top - 8 / v.scale} width=${8 / v.scale} height=${8 / v.scale} fill="#ccc" stroke="#f00" vector-effect="non-scaling-stroke" />
-          <rect class="tr-resize" x=${right} y=${top - 8 / v.scale} width=${8 / v.scale} height=${8 / v.scale} fill="#ccc" stroke="#000" vector-effect="non-scaling-stroke" />
-          <rect class="bl-resize" x=${left - 8 / v.scale} y=${bottom} width=${8 / v.scale} height=${8 / v.scale} fill="#ccc" stroke="#000" vector-effect="non-scaling-stroke" />
-          <rect class="br-resize" x=${right} y=${bottom} width=${8 / v.scale} height=${8 / v.scale} fill="#ccc" stroke="#000" vector-effect="non-scaling-size" />`;
+        return svg` <rect  x=${left - 4 / v.scale} y=${top - 4 / v.scale} class="draggable selection" width=${right - left + 8 / v.scale} height=${bottom - top + 8 / v.scale} fill="#fff0" stroke="#555" stroke-width="1" stroke-dasharray="3" vector-effect="non-scaling-stroke" />
+          <rect class="draggable tl-resize" x=${left - 8 / v.scale} y=${top - 8 / v.scale} width=${8 / v.scale} height=${8 / v.scale} fill="#ccc" stroke="#000" vector-effect="non-scaling-stroke" />
+          <rect class="draggable tr-resize" x=${right} y=${top - 8 / v.scale} width=${8 / v.scale} height=${8 / v.scale} fill="#ccc" stroke="#000" vector-effect="non-scaling-stroke" />
+          <rect class="draggable bl-resize" x=${left - 8 / v.scale} y=${bottom} width=${8 / v.scale} height=${8 / v.scale} fill="#ccc" stroke="#000" vector-effect="non-scaling-stroke" />
+          <rect class="draggable br-resize" x=${right} y=${bottom} width=${8 / v.scale} height=${8 / v.scale} fill="#ccc" stroke="#000" vector-effect="non-scaling-stroke" />
+          <circle class="draggable angle" cx=${left + rect.width / 2 + this.rotation().x} cy=${top + this.rotation().y} r=${6 / v.scale} fill="#f00" stroke-width="1px" stroke="#000" vector-effect="non-scaling-size"/>
+          `;
       } else {
         return svg``
       }
@@ -333,32 +409,6 @@ class Editor {
           this.selectionBox(new ViewNode(inversed.x, inversed.y, inversed.width, inversed.height));
         }
       }
-    }
-
-    processDown(e:Event) {
-      const target = e.target as SVGGraphicsElement
-
-      if (target.classList.contains('br-resize')) {
-        this.drag('br-resize')
-      }
-
-      if (target.classList.contains('tl-resize')) {
-        this.drag('tl-resize')
-      }
-
-      if (target.classList.contains('tr-resize')) {
-        this.drag('tr-resize')
-      }
-
-      if (target.classList.contains('bl-resize')) {
-        this.drag('bl-resize')
-      }
-
-      if (target.classList.contains('selection')) {
-        this.drag('selection')
-      }
-
-      return false;
     }
 
     canvas() {

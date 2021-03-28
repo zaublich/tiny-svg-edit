@@ -1,36 +1,44 @@
 
-// class AttributeMod{
-//     name: string
-//     value: any
-//     oldValue: any
-//     constructor(name:string, value:any, oldValue = null){
-//         this.name = name;
-//         this.value = value;
-//         this.oldValue = oldValue;
-//     }
-// }
+import {Observable} from 'sinuous/observable'
+import {o} from 'sinuous'
+class DocumentEvent {
+    source:string
 
-// class DocumentEvent{
+    timestamp: DOMHighResTimeStamp
+    observedValues: Record<string,any> | null
+    mutatedValues:Record<string,any>
+    constructor (source:string, mutatedValues:Record<string,any>, timestamp:DOMHighResTimeStamp = performance.now(), observedValues = null ) {
+        this.timestamp = performance.now()
+        this.observedValues = observedValues;
+        this.mutatedValues = mutatedValues;
+        this.source = source;
+    }
+}
 
-//     constructor(target:string, attrs:Array<AttributeMod>){
-//         this.attrs = attrs;
-//     }
-// }
 
 class DocumentNode {
     id:string;
     tag:string;
     attributes:Map<string, any>
+    nodeIndex:Observable<string[]>
+    activeNodes:Observable<string[]>
     constructor(id:string, tag:string, attributes:Map<string, any>) {
         this.id = id;
         this.tag = tag;
         this.attributes = attributes;
+        this.nodeIndex = o([])
+        this.activeNodes = o([])
     }
 }
+
 class Document {
-    nodes: {}
-    constructor(nodes:Map<string, DocumentNode>) {
+    nodes:Record<string,DocumentNode>
+
+    constructor(nodes:Record<string, DocumentNode>) {
         this.nodes = nodes;
+    }
+
+    reduce(action: DocumentEvent) {
     }
 }
 

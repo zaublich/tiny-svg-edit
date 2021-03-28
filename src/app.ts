@@ -16,6 +16,10 @@ const App = (editor) => html`
       height: 1000px;
       background: #aaa;
     }
+    
+    .draggable:hover{
+      stroke-width: 2px;
+    }
 
     svg {
       width: 1000px;
