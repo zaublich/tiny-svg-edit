@@ -20,12 +20,12 @@ const normalize = (s) => {
     s.h = -s.h;
   }
 }
-const collide = (s, bb) => {
+const collide = (s:{x:number, y:number, height:number, width: number}, bb:{x:number, y:number, height:number, width: number}) => {
   const n = normalize(s);
   return !((s.x + s.width < bb.x) || (s.y + s.height < bb.y) || (s.x > bb.x + bb.width) || (s.y > bb.y + bb.height));
 }
 
-const inside = (x, y, bb) => {
+const inside = (x:number, y:number, bb:{x:number, y:number, height:number, width: number}) => {
   return x > bb.x && y > bb.y && x < bb.x + bb.width && y < bb.y + bb.height;
 }
 
@@ -33,42 +33,33 @@ function clamp(val:number, min:number, max:number) {
   return Math.max(min, Math.min(val, max));
 }
 
-class Viewport {
-    scale: number
-    x: number
-    y: number
-    constructor({ x = 0, y = 0, scale = 1 }) {
-        this.scale = scale;
-        this.x = x;
-        this.y = y;
-    }
-}
-
-class ControlPoint{
+class ControlPoint {
   point: DOMPoint
   refPoint: string | null
-  constructor(point:DOMPoint, refPoint=null) {
-    this.point = point;
+  constructor(x: number, y: number, refPoint = null) {
+    this.point = new DOMPoint(x, y);
     this.refPoint = refPoint;
+  }
+
+  distance(p:ControlPoint) {
+    const vec = { x: this.point.x - p.point.x, y: this.point.y - p.point.y }
+    return Math.sqrt(vec.x * vec.x + vec.y * vec.y);
   }
 }
 
-class ViewNode {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  fill: string;
-  mat: DOMMatrix
-  
-  constructor(x = 0, y = 0, width = 0, height = 0, fill = '') {
-    this.mat = new DOMMatrix()
-    this.x = x;
-    this.y = y;
-    this.height = height;
-    this.width = width;
-    this.fill = fill;
+const getBBox = (points: Array<DOMPoint>, mat: SVGMatrix):DOMRect => {
+  let top = Number.MAX_SAFE_INTEGER
+  let left = Number.MAX_SAFE_INTEGER
+  let bottom = Number.MIN_SAFE_INTEGER
+  let right = Number.MIN_SAFE_INTEGER
+  for (const p of points) {
+    const tp = p.matrixTransform(mat)
+    top = Math.min(top, tp.y)
+    left = Math.min(left, tp.x)
+    bottom = Math.max(bottom, tp.y)
+    right = Math.max(right, tp.x)
   }
+  return new DOMRect(left, top, right - left, bottom - top);
 }
 
 const transformedBBox = (bbox: SVGRect, mat: SVGMatrix) => {
@@ -83,10 +74,149 @@ const transformedBBox = (bbox: SVGRect, mat: SVGMatrix) => {
   return new DOMRect(left, top, right - left, bottom - top);
 }
 
+class Viewport {
+    scale: number
+    x: number
+    y: number
+    constructor({ x = 0, y = 0, scale = 1 }) {
+        this.scale = scale;
+        this.x = x;
+        this.y = y;
+    }
+}
+
+class ViewNode {
+  mat: DOMMatrix
+  className: string
+  id: string
+  constructor(id:string, className:string) {
+    this.mat = new DOMMatrix()
+    console.log(this.mat)
+    this.id = id;
+    this.className = className;
+  }
+
+  getBBox() {
+    return new DOMRect();
+  }
+
+  render() {
+    return svg``;
+  }
+}
+
+class Rect extends ViewNode {
+  topLeft: ControlPoint;
+  bottomRight: ControlPoint
+  height: number
+  width: number
+  constructor(id:string, className:string, x:number, y:number, width:number, height:number) {
+    super(id, className);
+    this.topLeft = new ControlPoint(x, y);
+    this.bottomRight = new ControlPoint(x + width, y + height);
+    this.width = width
+    this.height = height
+  }
+
+  render() {
+    return svg`<rect class=${this.className} id=${this.id} transform=${this.mat} x=${this.topLeft.point.x} y=${this.topLeft.point.y} width=${this.width} height=${this.height}/>`
+  }
+
+  getParamPoints() {
+    return [this.topLeft, this.bottomRight]
+  }
+
+  getBBox() {
+    return getBBox([
+      new DOMPoint(this.topLeft.point.x, this.topLeft.point.y),
+      new DOMPoint(this.bottomRight.point.x, this.topLeft.point.y),
+      new DOMPoint(this.bottomRight.point.x, this.bottomRight.point.y),
+      new DOMPoint(this.topLeft.point.x, this.bottomRight.point.y)
+    ], this.mat);
+  }
+}
+
+class SelectionBox extends ViewNode {
+  topLeft: ControlPoint;
+  topRight: ControlPoint;
+  bottomRight: ControlPoint
+  bottomLeft: ControlPoint
+  rotationPoint: ControlPoint
+
+  height: number
+  width: number
+  constructor(id:string, className:string, x:number, y:number, width:number, height:number) {
+    super(id, className);
+    this.topLeft = new ControlPoint(x, y);
+    this.bottomRight = new ControlPoint(x + width, y + height);
+    this.topRight = new ControlPoint(x + width, y);
+    this.bottomLeft = new ControlPoint(x, y + height);
+    this.rotationPoint = new ControlPoint(x + width / 2, y);
+    this.width = width
+    this.height = height
+  }
+
+  render() {
+    return svg`<rect class=${this.className} id=${this.id} transform=${this.mat} x=${this.topLeft.point.x} y=${this.topLeft.point.y} width=${this.width} height=${this.height}/>`
+  }
+
+  getParamPoints() {
+    return [this.topLeft, this.bottomRight]
+  }
+
+  getBBox() {
+    return getBBox([
+      new DOMPoint(this.topLeft.point.x, this.topLeft.point.y),
+      new DOMPoint(this.bottomRight.point.x, this.topLeft.point.y),
+      new DOMPoint(this.bottomRight.point.x, this.bottomRight.point.y),
+      new DOMPoint(this.topLeft.point.x, this.bottomRight.point.y)
+    ], this.mat);
+  }
+}
+
+class Circle extends ViewNode {
+  center: ControlPoint;
+  radius: ControlPoint;
+  constructor(id:string, className:string, cx:number, cy:number, rx:number, ry:number) {
+    super(id, className);
+    this.radius = new ControlPoint(rx, ry);
+    this.center = new ControlPoint(cx, cy);
+  }
+
+  render() {
+    const radius = this.center.distance(this.radius);
+    return svg`<circle fill="#eee" class=${this.className} id=${this.id} transform=${this.mat} cx=${this.center.point.x} cy=${this.center.point.y} stroke="#000" r=${radius}/>`
+  }
+
+  getBBox() {
+    const radius = this.center.distance(this.radius);
+    const box = getBBox([
+      new DOMPoint(this.center.point.x - radius, this.center.point.y - radius),
+      new DOMPoint(this.center.point.x + radius, this.center.point.y - radius),
+      new DOMPoint(this.center.point.x + radius, this.center.point.y + radius),
+      new DOMPoint(this.center.point.x - radius, this.center.point.y + radius)
+    ], this.mat);
+    console.log('Box', box);
+    return box;
+  }
+
+  getParamPoints() {
+    return [this.center, this.radius];
+  }
+}
+
+class Path extends ViewNode {
+  points: Array<ControlPoint>
+  constructor(id:string, className:string) {
+    super(id, className);
+    this.points = []
+  }
+}
+
 class Editor {
     drag: Observable<string>
     selection: Observable<SVGRect>
-    selectionBox: Observable<ViewNode>
+    selectionBox: Observable<Rect>
     selected: Observable<Set<string>>
     focusedNode: Observable<string|null>
     nodeIndex:Observable<Array<string>>
@@ -100,7 +230,7 @@ class Editor {
 
     constructor(root:Element) {
       this.rotation = o(new DOMPoint())
-      this.selectionBox = o(new ViewNode())
+      this.selectionBox = o(new Rect('selection-box', 'selection-box', 0, 0, 0, 0))
       this.selected = o(new Set<string>())
       this.nodes = o({})
       this.focusedNode = o(null)
@@ -108,10 +238,10 @@ class Editor {
 
       this.nodeIndexCache = []
       this.nodeCache = {}
-      for (let xIdx = 0; xIdx < 40; xIdx++) {
-        for (let yIdx = 0; yIdx < 40; yIdx++) {
+      for (let xIdx = 0; xIdx < 3; xIdx++) {
+        for (let yIdx = 0; yIdx < 3; yIdx++) {
           this.nodeIndexCache.push(`n${xIdx}_${yIdx}`)
-          this.nodeCache[`n${xIdx}_${yIdx}`] = new ViewNode(xIdx * 10, yIdx * 10, 8, 8, '#fff');
+          this.nodeCache[`n${xIdx}_${yIdx}`] = new Circle(`n${xIdx}_${yIdx}`, 'node circle', xIdx * 64, yIdx * 64, xIdx * 64 + 16, yIdx * 64);
         }
       }
       this.nodes(this.nodeCache);
@@ -145,12 +275,11 @@ class Editor {
     }
 
     resizeSelection(relX:number, relY:number, originX:number, originY:number) {
-      const box = this.selectionBox();
-      const tbox = transformedBBox(new DOMRect(box.x, box.y, box.width, box.height), box.mat)
+      //const selection = this.selectionBox().getBBox();
+      const tbox = this.selectionBox().getBBox()
       const cv = this.viewport();
       let scaleX = (tbox.width + relX / cv.scale) / tbox.width;
       let scaleY = (tbox.height + relY / cv.scale) / tbox.height;
-
       if (scaleX < 1) {
         scaleX = scaleY = Math.min(scaleX, scaleY);
       } else {
@@ -158,8 +287,8 @@ class Editor {
       }
 
       if (scaleX > 0 && scaleY > 0) {
-        box.mat.scaleSelf(scaleX, scaleY, 1.0, tbox.x - originX * tbox.width, tbox.y - originY * tbox.height, 0);
-        this.selectionBox(box);
+        this.selectionBox().mat.scaleSelf(scaleX, scaleY, 1.0, tbox.x - originX * tbox.width, tbox.y - originY * tbox.height, 0);
+        this.selectionBox(this.selectionBox());
       }
     }
 
@@ -170,7 +299,7 @@ class Editor {
           if (ev.button == 1) {
             this.drag('rubber');
             this.selected(new Set<string>())
-            this.selectionBox(new ViewNode(0, 0, 0, 0))
+            this.selectionBox(new Rect('selection-box', 'selection-box', 0, 0, 0, 0))
             const rect = this.rootNode?.getBoundingClientRect();
             if (rect) {
               this.selection(new DOMRect(ev.x, ev.y - 50, 0, 0))
@@ -260,20 +389,20 @@ class Editor {
                   this.updateSelectionBox();
                 } else {
                   this.selected(new Set<string>());
-                  this.selectionBox(new ViewNode(0, 0, 0, 0))
+                  this.selectionBox(new Rect('selection-box', 'selection-box', 0, 0, 0, 0))
                 }
               }
             }
           }
 
           const v = this.viewport()
-          const ctm = this.getViewportNode().getCTM().inverse()
+          const ctm = this.selectionBox().mat
           if (ctm) {
             const selected = this.selected()
             selected.forEach((e) => {
-              const node = (this.getNode(e) as SVGGraphicsElement)
+              const node = this.nodeCache[e]
               if (node) {
-                const mt = ctm.multiply(node.getCTM())
+                const mt = ctm.multiply(node.mat)
                 if (mt) {
                   this.nodeCache[e].mat = new DOMMatrix([mt.a, mt.b, mt.c, mt.d, mt.e, mt.f]);
                 }
@@ -281,9 +410,9 @@ class Editor {
             });
           }
 
-          const box = this.selectionBox()
-          const rect = transformedBBox(new DOMRect(box.x, box.y, box.width, box.height), box.mat);
-          this.selectionBox(new ViewNode(rect.x, rect.y, rect.width, rect.height))
+          const box = this.selectionBox().getBBox()
+          //const rect = transformedBBox(new DOMRect(box.x, box.y, box.width, box.height), box.mat);
+          this.selectionBox(new Rect('selection-box', 'selection-box', box.x, box.y, box.width, box.height))
           this.drag('');
         }
       })
@@ -309,7 +438,7 @@ class Editor {
       const nonSelected = o(nodeIndex.filter((n) => !selected.has(n)))
       return map(nonSelected, (n) => {
         const v = nodes[n];
-        return svg`<rect id=${n} class="node" x=${v.x} y=${v.y} transform=${v.mat} width=${v.width} height=${v.height} fill=${v.fill} />`
+        return v.render()
       });
     }
 
@@ -320,7 +449,7 @@ class Editor {
       const nonSelected = o(nodeIndex.filter((n) => selected.has(n)))
       const selectedList = map(nonSelected, (n) => {
         const v = nodes[n];
-        return svg`<rect id=${n} class="node" x=${v.x} y=${v.y} transform=${v.mat} width=${v.width} height=${v.height} fill=${v.fill} />`
+        return v.render();
       });
 
       return svg`<g class="selected" transform-origion="center" transform=${this.selectionBox().mat}>${selectedList}</g>`
@@ -329,7 +458,7 @@ class Editor {
     processDown(e:Event) {
       const target = e.target as SVGGraphicsElement
       if (target.classList.contains('node')) {
-        this.focusedNode(target.id) 
+        this.focusedNode(target.id)
       } else {
         if (target.classList.contains('br-resize')) {
           this.drag('br-resize')
@@ -360,7 +489,7 @@ class Editor {
     }
 
     drawNodesSelectionBox() {
-      const box = this.selectionBox()
+      const box = this.selectionBox().getBBox()
       const rect = transformedBBox(new DOMRect(box.x, box.y, box.width, box.height), box.mat);
       const left = rect.left;
       const top = rect.top;
@@ -388,25 +517,19 @@ class Editor {
 
       const selected = this.selected();
       selected.forEach((v) => {
-        const node = document.getElementById(v);
-        if (node) {
-          const svgNode = node as SVGGraphicsElement;
-          const ctm = svgNode.getCTM();
-          if (ctm) {
-            const bbox = transformedBBox(svgNode.getBBox(), ctm)
-            top = Math.min(top, bbox.top);
-            left = Math.min(left, bbox.left);
-            bottom = Math.max(bottom, bbox.bottom);
-            right = Math.max(right, bbox.right);
-          }
-        }
+          const cbbox = this.nodeCache[v].getBBox();
+          const bbox = cbbox
+          top = Math.min(top, bbox.top);
+          left = Math.min(left, bbox.left);
+          bottom = Math.max(bottom, bbox.bottom);
+          right = Math.max(right, bbox.right);
       });
 
       if (bottom != top || left != right) {
-        const ctm = this.getViewportNode().getCTM()?.inverse()
+        const ctm = new DOMMatrix()
         if (ctm) {
-          const inversed = transformedBBox(new DOMRect(left, top, right - left, bottom - top), ctm);
-          this.selectionBox(new ViewNode(inversed.x, inversed.y, inversed.width, inversed.height));
+          const inversed = new DOMRect(left, top, right - left, bottom - top);
+          this.selectionBox(new Rect('selection-box', 'selection-box', inversed.left, inversed.top, inversed.width, inversed.height));
         }
       }
     }
