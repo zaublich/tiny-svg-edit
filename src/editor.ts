@@ -185,7 +185,12 @@ class Circle extends ViewNode {
 
   render() {
     const radius = this.center.distance(this.radius);
-    return svg`<circle fill="#eee" class=${this.className} id=${this.id} transform=${this.mat} cx=${this.center.point.x} cy=${this.center.point.y} stroke="#000" r=${radius}/>`
+    return svg`
+    <g class=${this.className} id=${this.id} transform=${this.mat}>
+      <circle fill="#eee" cx=${this.center.point.x} cy=${this.center.point.y} stroke="#000" r=${radius}/>
+      <circle class="control-point" cx=${this.radius.point.x} cy=${this.radius.point.y} r="4" stroke="#000" id="radius" fill="#eaa" />
+    </g>
+    `
   }
 
   getBBox() {
@@ -313,15 +318,15 @@ class Editor {
         if (ev.type == 'MOVE') {
           switch (drag) {
             case 'angle': {
-              const old = new DOMPoint(this.rotation().x, this.rotation().y)
-              const oldAngle = Math.atan2(old.y, old.x);
-              this.rotation(new DOMPoint(old.x + ev.relX, old.y + ev.relY))
-              const box = this.selectionBox()
-              const angle = Math.atan2(this.rotation().y, this.rotation().x);
-              box.mat.translateSelf(box.x + box.width / 2, box.y + box.height / 2);
-              box.mat.rotateSelf(0, 0.0, (angle - oldAngle) * 180 / Math.PI);
-              box.mat.translateSelf(-(box.x + box.width / 2), -(box.y + box.height / 2))
-              this.selectionBox(box);
+                // const old = new DOMPoint(this.rotation().x, this.rotation().y)
+                // const oldAngle = Math.atan2(old.y, old.x);
+                // this.rotation(new DOMPoint(old.x + ev.relX, old.y + ev.relY))
+                // const box = this.selectionBox()
+                // const angle = Math.atan2(this.rotation().y, this.rotation().x);
+                // box.mat.translateSelf(box.x + box.width / 2, box.y + box.height / 2);
+                // box.mat.rotateSelf(0, 0.0, (angle - oldAngle) * 180 / Math.PI);
+                // box.mat.translateSelf(-(box.x + box.width / 2), -(box.y + box.height / 2))
+                // this.selectionBox(box);
               break;
             }
             case 'selection': {
