@@ -44,10 +44,10 @@ class Viewport {
     }
 }
 
-class ControlPoint{
+class ControlPoint {
   point: DOMPoint
   refPoint: string | null
-  constructor(point:DOMPoint, refPoint=null) {
+  constructor(point:DOMPoint, refPoint = null) {
     this.point = point;
     this.refPoint = refPoint;
   }
@@ -60,7 +60,6 @@ class ViewNode {
   height: number;
   fill: string;
   mat: DOMMatrix
-  
   constructor(x = 0, y = 0, width = 0, height = 0, fill = '') {
     this.mat = new DOMMatrix()
     this.x = x;
@@ -329,7 +328,7 @@ class Editor {
     processDown(e:Event) {
       const target = e.target as SVGGraphicsElement
       if (target.classList.contains('node')) {
-        this.focusedNode(target.id) 
+        this.focusedNode(target.id)
       } else {
         if (target.classList.contains('br-resize')) {
           this.drag('br-resize')
