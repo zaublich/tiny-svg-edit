@@ -1,6 +1,6 @@
 import { Document } from './document'
 import { o, svg, html } from 'sinuous'
-import { PointerEventObservable, PointerEvent } from './PointerEvents'
+import { PointerEventObservable, PointerEvent, ButtonType } from './PointerEvents'
 import { map } from 'sinuous/map'
 import { Observable, S } from 'sinuous/observable'
 import * as rxjs from 'rxjs'
@@ -89,11 +89,13 @@ class ViewNode {
   mat: DOMMatrix
   className: string
   id: string
+  mousedown:Record<number, (node:string, info:string)=>void>
   constructor(id:string, className:string) {
     this.mat = new DOMMatrix()
     console.log(this.mat)
     this.id = id;
     this.className = className;
+    this.mousedown = {}
   }
 
   getBBox() {
@@ -102,6 +104,10 @@ class ViewNode {
 
   render() {
     return svg``;
+  }
+
+  controlPointMoved(id:string, ev:PointerEvent) {
+    console.log(id, ev);
   }
 }
 
@@ -188,9 +194,13 @@ class Circle extends ViewNode {
     return svg`
     <g class=${this.className} id=${this.id} transform=${this.mat}>
       <circle fill="#eee" cx=${this.center.point.x} cy=${this.center.point.y} stroke="#000" r=${radius}/>
-      <circle class="control-point" cx=${this.radius.point.x} cy=${this.radius.point.y} r="4" stroke="#000" id="radius" fill="#eaa" />
+      <circle id="radius" class="control-point" cx=${this.radius.point.x} cy=${this.radius.point.y} r="4" stroke="#000" id="radius" fill="#eaa" />
     </g>
     `
+  }
+
+  controlPointMoved(id:string, ev:PointerEvent) {
+    console.log(ev);
   }
 
   getBBox() {
@@ -201,7 +211,6 @@ class Circle extends ViewNode {
       new DOMPoint(this.center.point.x + radius, this.center.point.y + radius),
       new DOMPoint(this.center.point.x - radius, this.center.point.y + radius)
     ], this.mat);
-    console.log('Box', box);
     return box;
   }
 
@@ -221,13 +230,15 @@ class Path extends ViewNode {
 class DragType {
   type: string | null
   node: string | null
+  info: string | null
   IsSet() {
     return this.type != null && this.node != null;
   }
 
-  constructor(t:string | null = null, n: string | null = null) {
+  constructor(t:string | null = null, n: string | null = null, i: string | null = null) {
     this.type = t;
     this.node = n;
+    this.info = i;
   }
 }
 
@@ -310,11 +321,104 @@ class Editor {
       }
     }
 
+    dragControl(ev:PointerEvent) {
+      switch (this.drag().node) {
+        case 'selected': {
+          const box = this.selectionBox();
+          box.mat.translateSelf(ev.relX / this.viewport().scale, ev.relY / this.viewport().scale, 0)
+          this.selectionBox(box);
+          break;
+        }
+        case 'br-resize': {
+          this.resizeSelection(ev.relX, ev.relY, 0, 0);
+          break;
+        }
+        case 'tl-resize': {
+          this.resizeSelection(-ev.relX, -ev.relY, -1, -1);
+          break;
+        }
+        case 'bl-resize': {
+          this.resizeSelection(-ev.relX, ev.relY, -1, 0);
+          break;
+        }
+        case 'tr-resize': {
+          this.resizeSelection(ev.relX, -ev.relY, 0, -1);
+          break;
+        }
+      }
+    }
+
+    dragCanvas(ev:PointerEvent) {
+      switch (this.drag().node) {
+        case 'angle': {
+          break;
+        }
+        case 'rubber': {
+          const c = this.selection();
+          this.selection(new DOMRect(c.x, c.y, c.width + ev.relX, c.height + ev.relY))
+          break;
+        }
+        case 'movement': {
+          const cv = this.viewport();
+          this.viewport({ x: cv.x + ev.relX / cv.scale, y: cv.y + ev.relY / cv.scale, scale: cv.scale })
+          break;
+        }
+      }
+    }
+
+    selectNodes(r:Element) {
+      if (r) {
+        const s = r.getBoundingClientRect();
+        const nodeList = this.getNodeList();
+        const selectedNodes = nodeList.reduce((accumulator, n) => {
+          if (collide(s, n.getBoundingClientRect())) {
+            accumulator.add(n.id);
+          }
+          return accumulator;
+        }, new Set<string>())
+        if (selectedNodes.size) {
+          this.selected(selectedNodes)
+          this.updateSelectionBox();
+        } else {
+          this.selected(new Set<string>());
+          this.selectionBox(new Rect('selection-box', 'selection-box', 0, 0, 0, 0))
+        }
+      }
+    }
+
+    updateNodesTransformation() {
+      const v = this.viewport()
+      const ctm = this.selectionBox().mat
+      if (ctm) {
+        const selected = this.selected()
+        selected.forEach((e) => {
+          const node = this.nodeCache[e]
+          if (node) {
+            const mt = ctm.multiply(node.mat)
+            if (mt) {
+              this.nodeCache[e].mat = new DOMMatrix([mt.a, mt.b, mt.c, mt.d, mt.e, mt.f]);
+            }
+          }
+        });
+      }
+      const box = this.selectionBox().getBBox()
+      this.selectionBox(new Rect('selection-box', 'selection-box', box.x, box.y, box.width, box.height))
+    }
+
+    updateCanvasZoom(ev:PointerEvent) {
+      const sign = Math.sign(ev.relX)
+      const scaleChange = Math.pow(1.05, -sign)
+      const cv = this.viewport();
+      const newScale = cv.scale * scaleChange
+      const totalX = (ev.x / newScale) - (ev.x / cv.scale - cv.x)
+      const totalY = (ev.y / newScale) - (ev.y / cv.scale - cv.y)
+      this.viewport({ x: totalX, y: totalY, scale: newScale });
+    }
+
     bindEvents() {
       this.pointerEvent.subscribe((ev) => {
         if (ev.type == 'DOWN') {
-          console.log(this.drag())
-          if (ev.button == 1 && this.drag().IsSet() == false) {
+          if (ev.button == ButtonType.Left && this.drag().IsSet() == false) {
             this.drag(new DragType('canvas', 'rubber'));
             this.selected(new Set<string>())
             this.selectionBox(new Rect('selection-box', 'selection-box', 0, 0, 0, 0))
@@ -323,111 +427,44 @@ class Editor {
               this.selection(new DOMRect(ev.x, ev.y - 50, 0, 0))
             }
             this.nodes(this.nodeCache)
-          } else if (ev.button == 3) {
+          } else if (ev.button == ButtonType.Right) {
             this.drag(new DragType('canvas', 'movement'));
           }
         }
         if (ev.type == 'MOVE' && this.drag().IsSet()) {
           if (this.drag().type == 'canvas') {
-            switch (this.drag().node) {
-              case 'angle': {
-                break;
-              }
-              case 'rubber': {
-                const c = this.selection();
-                this.selection(new DOMRect(c.x, c.y, c.width + ev.relX, c.height + ev.relY))
-                break;
-              }
-              case 'movement': {
-                const cv = this.viewport();
-                this.viewport({ x: cv.x + ev.relX / cv.scale, y: cv.y + ev.relY / cv.scale, scale: cv.scale })
-                break;
-              }
-            }
+            this.dragCanvas(ev)
           }
-        console.log(this.drag())
+
         if (this.drag().type == 'control') {
-            switch (this.drag().node) {              
-              case 'selected': {
-                const box = this.selectionBox();
-                box.mat.translateSelf(ev.relX / this.viewport().scale, ev.relY / this.viewport().scale, 0)
-                this.selectionBox(box);
-                break;
-              }
-              case 'br-resize': {
-                this.resizeSelection(ev.relX, ev.relY, 0, 0);
-                break;
-              }
-              case 'tl-resize': {
-                this.resizeSelection(-ev.relX, -ev.relY, -1, -1);
-                break;
-              }
-              case 'bl-resize': {
-                this.resizeSelection(-ev.relX, ev.relY, -1, 0);
-                break;
-              }
-              case 'tr-resize': {
-                this.resizeSelection(ev.relX, -ev.relY, 0, -1);
-                break;
-              }
-            }
+            this.dragControl(ev);
+          }
+        }
+
+        if (this.drag().type == 'control-point') {
+          const drag = this.drag();
+          if (drag.node != null && drag.info != null) {
+           const node = this.nodeCache[drag.node].controlPointMoved(drag.info, ev);
           }
         }
 
         if (ev.type == 'SCROLL') {
-          const sign = Math.sign(ev.relX)
-          const scaleChange = Math.pow(1.05, -sign)
-          const cv = this.viewport();
-          const newScale = cv.scale * scaleChange
-          const totalX = (ev.x / newScale) - (ev.x / cv.scale - cv.x)
-          const totalY = (ev.y / newScale) - (ev.y / cv.scale - cv.y)
-          this.viewport({ x: totalX, y: totalY, scale: newScale });
+          this.updateCanvasZoom(ev);
         }
 
         if (ev.type == 'UP') {
-          if (ev.button == 1) {
+          if (ev.button == ButtonType.Left) {
             if (this.drag().type == 'angle') {
               this.rotation(new DOMPoint(0, 0));
             } else if (this.drag().type == 'canvas' && this.drag().node == 'rubber') {
               const r = this.getRubberSelection();
               if (r) {
-                const s = r.getBoundingClientRect();
-                const nodeList = this.getNodeList();
-                const selectedNodes = nodeList.reduce((accumulator, n) => {
-                  if (collide(s, n.getBoundingClientRect())) {
-                    accumulator.add(n.id);
-                  }
-                  return accumulator;
-                }, new Set<string>())
-                if (selectedNodes.size) {
-                  this.selected(selectedNodes)
-                  this.updateSelectionBox();
-                } else {
-                  this.selected(new Set<string>());
-                  this.selectionBox(new Rect('selection-box', 'selection-box', 0, 0, 0, 0))
-                }
+                this.selectNodes(r);
               }
             }
           }
 
-          const v = this.viewport()
-          const ctm = this.selectionBox().mat
-          if (ctm) {
-            const selected = this.selected()
-            selected.forEach((e) => {
-              const node = this.nodeCache[e]
-              if (node) {
-                const mt = ctm.multiply(node.mat)
-                if (mt) {
-                  this.nodeCache[e].mat = new DOMMatrix([mt.a, mt.b, mt.c, mt.d, mt.e, mt.f]);
-                }
-              }
-            });
-          }
-
-          const box = this.selectionBox().getBBox()
-          //const rect = transformedBBox(new DOMRect(box.x, box.y, box.width, box.height), box.mat);
-          this.selectionBox(new Rect('selection-box', 'selection-box', box.x, box.y, box.width, box.height))
+          this.updateNodesTransformation();
           this.drag(new DragType());
         }
       })
@@ -477,8 +514,10 @@ class Editor {
       } else {
         if (target.classList.contains('draggable')) {
           this.drag(new DragType('control', target.id));
-        } else if (target.classList.contains('drag-point')) {
-          this.drag(new DragType('point', target.id));
+        } else if (target.classList.contains('control-point')) {
+          if (target.parentNode) {
+            this.drag(new DragType('control-point', target.parentNode.id, target.id));
+          }
         }
       }
       e.preventDefault();

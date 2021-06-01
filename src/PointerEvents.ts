@@ -1,12 +1,17 @@
 import { Observable } from 'rxjs'
 
+enum ButtonType{
+  Left = 0,
+  Middle = 1,
+  Right = 2
+}
 class PointerEvent {
     x:number
     y:number
     relX:number
     relY:number
     type:string
-    button: number
+    button: ButtonType
 
     constructor(x:number, y:number, relX:number, relY:number, type:string, button = 0) {
       this.x = x;
@@ -19,11 +24,11 @@ class PointerEvent {
     }
   }
 
-const PointerEventObservable = (node) => new Observable<PointerEvent>(subscriber => {
+const PointerEventObservable = (node:Element) => new Observable<PointerEvent>(subscriber => {
     const pointerPos = { x: 0, y: 0 };
 
     node.addEventListener('pointerdown', (e) => {
-      subscriber.next({ type: 'DOWN', button: e.button + 1, x: e.clientX - node.getBoundingClientRect().x, y: e.clientY - node.getBoundingClientRect().y, relX: e.pageX - pointerPos.x, relY: e.pageY - pointerPos.y })
+      subscriber.next({ type: 'DOWN', button: e.button, x: e.clientX - node.getBoundingClientRect().x, y: e.clientY - node.getBoundingClientRect().y, relX: e.pageX - pointerPos.x, relY: e.pageY - pointerPos.y })
       pointerPos.x = e.pageX;
       pointerPos.y = e.pageY;
       //e.stopPropagation()
@@ -31,7 +36,7 @@ const PointerEventObservable = (node) => new Observable<PointerEvent>(subscriber
     });
 
     window.addEventListener('pointerup', (e) => {
-      subscriber.next({ type: 'UP', button: e.button + 1, x: e.clientX, y: e.clientY, relX: e.pageX - pointerPos.x, relY: e.pageY - pointerPos.y })
+      subscriber.next({ type: 'UP', button: e.button, x: e.clientX, y: e.clientY, relX: e.pageX - pointerPos.x, relY: e.pageY - pointerPos.y })
       pointerPos.x = e.pageX;
       pointerPos.y = e.pageY;
       e.stopPropagation()
@@ -47,7 +52,7 @@ const PointerEventObservable = (node) => new Observable<PointerEvent>(subscriber
     })
 
     window.addEventListener('pointermove', (e) => {
-      subscriber.next({ type: 'MOVE', x: e.clientX, y: e.clientY, relX: e.pageX - pointerPos.x, relY: e.pageY - pointerPos.y })
+      subscriber.next({ type: 'MOVE', button: e.button, x: e.clientX, y: e.clientY, relX: e.pageX - pointerPos.x, relY: e.pageY - pointerPos.y })
       pointerPos.x = e.pageX;
       pointerPos.y = e.pageY;
     });
@@ -55,5 +60,6 @@ const PointerEventObservable = (node) => new Observable<PointerEvent>(subscriber
 
   export {
       PointerEventObservable,
-      PointerEvent
+      PointerEvent,
+      ButtonType
   }
