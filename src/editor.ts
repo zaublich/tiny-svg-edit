@@ -34,16 +34,23 @@ function clamp(val:number, min:number, max:number) {
 }
 
 class ControlPoint {
-  point: DOMPoint
+  point: Observable<DOMPoint>
   refPoint: string | null
   constructor(x: number, y: number, refPoint = null) {
-    this.point = new DOMPoint(x, y);
+    this.point = o(new DOMPoint(x, y));
     this.refPoint = refPoint;
   }
 
   distance(p:ControlPoint) {
-    const vec = { x: this.point.x - p.point.x, y: this.point.y - p.point.y }
+    const p1 = p.point()
+    const p2 = this.point()
+    const vec = { x: p2.x - p1.x, y: p2.y - p1.y }
     return Math.sqrt(vec.x * vec.x + vec.y * vec.y);
+  }
+
+  move(x:number, y:number) {
+    const p = this.point()
+    this.point(new DOMPoint(p.x + x, p.y + y))
   }
 }
 
@@ -125,7 +132,7 @@ class Rect extends ViewNode {
   }
 
   render() {
-    return svg`<rect class=${this.className} id=${this.id} transform=${this.mat} x=${this.topLeft.point.x} y=${this.topLeft.point.y} width=${this.width} height=${this.height}/>`
+    return svg`<rect class=${this.className} id=${this.id} transform=${this.mat} x=${this.topLeft.point().x} y=${this.topLeft.point().y} width=${this.width} height=${this.height}/>`
   }
 
   getParamPoints() {
@@ -133,11 +140,13 @@ class Rect extends ViewNode {
   }
 
   getBBox() {
+    const topLeft = this.topLeft.point();
+    const bottomRight = this.bottomRight.point();
     return getBBox([
-      new DOMPoint(this.topLeft.point.x, this.topLeft.point.y),
-      new DOMPoint(this.bottomRight.point.x, this.topLeft.point.y),
-      new DOMPoint(this.bottomRight.point.x, this.bottomRight.point.y),
-      new DOMPoint(this.topLeft.point.x, this.bottomRight.point.y)
+      new DOMPoint(topLeft.x, topLeft.y),
+      new DOMPoint(bottomRight.x, topLeft.y),
+      new DOMPoint(bottomRight.x, bottomRight.y),
+      new DOMPoint(topLeft.x, bottomRight.y)
     ], this.mat);
   }
 }
@@ -163,7 +172,7 @@ class SelectionBox extends ViewNode {
   }
 
   render() {
-    return svg`<rect class=${this.className} id=${this.id} transform=${this.mat} x=${this.topLeft.point.x} y=${this.topLeft.point.y} width=${this.width} height=${this.height}/>`
+    return svg`<rect class=${this.className} id=${this.id} transform=${this.mat} x=${this.topLeft.point().x} y=${this.topLeft.point().y} width=${this.width} height=${this.height}/>`
   }
 
   getParamPoints() {
@@ -171,11 +180,13 @@ class SelectionBox extends ViewNode {
   }
 
   getBBox() {
+    const topLeft = this.topLeft.point();
+    const bottomRight = this.bottomRight.point();
     return getBBox([
-      new DOMPoint(this.topLeft.point.x, this.topLeft.point.y),
-      new DOMPoint(this.bottomRight.point.x, this.topLeft.point.y),
-      new DOMPoint(this.bottomRight.point.x, this.bottomRight.point.y),
-      new DOMPoint(this.topLeft.point.x, this.bottomRight.point.y)
+      new DOMPoint(topLeft.x, topLeft.y),
+      new DOMPoint(bottomRight.x, topLeft.y),
+      new DOMPoint(bottomRight.x, bottomRight.y),
+      new DOMPoint(topLeft.x, bottomRight.y)
     ], this.mat);
   }
 }
@@ -193,8 +204,7 @@ class Circle extends ViewNode {
     const radius = this.center.distance(this.radius);
     return svg`
     <g class=${this.className} id=${this.id} transform=${this.mat}>
-      <circle fill="#eee" cx=${this.center.point.x} cy=${this.center.point.y} stroke="#000" r=${radius}/>
-      <circle id="radius" class="control-point" cx=${this.radius.point.x} cy=${this.radius.point.y} r="4" stroke="#000" id="radius" fill="#eaa" />
+      <circle fill="#eee" cx=${this.center.point().x} cy=${this.center.point().y} stroke="#000" r=${radius}/>
     </g>
     `
   }
@@ -205,11 +215,12 @@ class Circle extends ViewNode {
 
   getBBox() {
     const radius = this.center.distance(this.radius);
+    const center = this.center.point()
     const box = getBBox([
-      new DOMPoint(this.center.point.x - radius, this.center.point.y - radius),
-      new DOMPoint(this.center.point.x + radius, this.center.point.y - radius),
-      new DOMPoint(this.center.point.x + radius, this.center.point.y + radius),
-      new DOMPoint(this.center.point.x - radius, this.center.point.y + radius)
+      new DOMPoint(center.x - radius, center.y - radius),
+      new DOMPoint(center.x + radius, center.y - radius),
+      new DOMPoint(center.x + radius, center.y + radius),
+      new DOMPoint(center.x - radius, center.y + radius)
     ], this.mat);
     return box;
   }
@@ -507,23 +518,6 @@ class Editor {
       return svg`<g class="selected" transform-origion="center" transform=${this.selectionBox().mat}>${selectedList}</g>`
     }
 
-    processDown(e:Event) {
-      const target = e.target as SVGGraphicsElement
-      if (target.classList.contains('node')) {
-        this.drag(new DragType('node', target.id));
-      } else {
-        if (target.classList.contains('draggable')) {
-          this.drag(new DragType('control', target.id));
-        } else if (target.classList.contains('control-point')) {
-          if (target.parentNode) {
-            this.drag(new DragType('control-point', target.parentNode.id, target.id));
-          }
-        }
-      }
-      e.preventDefault();
-      return false;
-    }
-
     drawNodesSelectionBox() {
       const box = this.selectionBox().getBBox()
       const rect = transformedBBox(new DOMRect(box.x, box.y, box.width, box.height), box.mat);
@@ -570,12 +564,36 @@ class Editor {
       }
     }
 
+    processDown(e:Event) {
+      const target = e.target as SVGGraphicsElement
+      if (target.classList.contains('node')) {
+        this.drag(new DragType('node', target.id));
+      } else {
+        if (target.classList.contains('draggable')) {
+          this.drag(new DragType('control', target.id));
+        } else if (target.classList.contains('control-point')) {
+          if (target.parentNode) {
+            this.drag(new DragType('control-point', target.parentNode.id, target.id));
+          }
+        }
+      }
+      e.preventDefault();
+      return false;
+    }
+
+    processOver(e:Event) {
+      const target = e.target as SVGGraphicsElement
+      if (target.classList.contains('node')) {
+        console.log('node', target.classList)
+      }
+    }
+
     canvas() {
       return () => {
         const v = this.viewport();
         const mat = new DOMMatrix(`scale(${v.scale},${v.scale}) translate(${v.x}px,${v.y}px)`)
         return svg`
-        <svg onpointerdown=${(e) => this.processDown(e)} oncontextmenu=${(e) => e.preventDefault()} id="svg-root" viewBox="0 0 1000 1000"  preserveAspectRatio="xMidYMid meet">
+        <svg onpointerdown=${(e) => this.processDown(e)} onpointerover=${(e) => this.processOver(e)} oncontextmenu=${(e) => e.preventDefault()} id="svg-root" viewBox="0 0 1000 1000"  preserveAspectRatio="xMidYMid meet">
             <g id="viewport" transform=${mat}>
             ${this.renderNodes()}
             ${this.renderSelectedNodes()}
