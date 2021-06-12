@@ -113,8 +113,8 @@ class ViewNode {
     return svg``;
   }
 
-  controlPointMoved(id:string, ev:PointerEvent) {
-    console.log(id, ev);
+  getControlPoints():Array<ControlPoint> {
+    return [];
   }
 }
 
@@ -135,7 +135,7 @@ class Rect extends ViewNode {
     return svg`<rect class=${this.className} id=${this.id} transform=${this.mat} x=${this.topLeft.point().x} y=${this.topLeft.point().y} width=${this.width} height=${this.height}/>`
   }
 
-  getParamPoints() {
+  getControlPoints() {
     return [this.topLeft, this.bottomRight]
   }
 
@@ -175,7 +175,7 @@ class SelectionBox extends ViewNode {
     return svg`<rect class=${this.className} id=${this.id} transform=${this.mat} x=${this.topLeft.point().x} y=${this.topLeft.point().y} width=${this.width} height=${this.height}/>`
   }
 
-  getParamPoints() {
+  getControlPoints() {
     return [this.topLeft, this.bottomRight]
   }
 
@@ -209,8 +209,8 @@ class Circle extends ViewNode {
     `
   }
 
-  controlPointMoved(id:string, ev:PointerEvent) {
-    console.log(ev);
+  getControlPoints() {
+    return [this.center, this.radius];
   }
 
   getBBox() {
@@ -572,9 +572,7 @@ class Editor {
         if (target.classList.contains('draggable')) {
           this.drag(new DragType('control', target.id));
         } else if (target.classList.contains('control-point')) {
-          if (target.parentNode) {
-            this.drag(new DragType('control-point', target.parentNode.id, target.id));
-          }
+            this.drag(new DragType('control-point',{}));
         }
       }
       e.preventDefault();
@@ -583,11 +581,25 @@ class Editor {
 
     processOver(e:Event) {
       const target = e.target as SVGGraphicsElement
-      if (target.classList.contains('node')) {
-        console.log('node', target.classList)
+      const node = target.closest('g.node');
+      if (node && node.id) {
+        this.focusedNode(node.id)
       }
     }
 
+    renderFocusedNode(){
+      const focused = this.focusedNode();
+      if(focused && this.nodeCache[focused]){
+        const n = this.nodeCache[focused];
+        const points = o(n.getControlPoints())
+        console.log(n.getControlPoints())
+        //return svg`<circle cx="100" cy="100" fill="#f00" r="50"/>`;
+        return svg`${map(points, (p)=> svg`<circle class="control-point" transform=${n.mat} cx=${p.point().x} cy=${p.point().y} r="4" fill="#f00" stroke="#000" vector-effect="non-scaling-size")/>`)}`;
+      } else {
+        return svg``;
+      }
+    }
+    
     canvas() {
       return () => {
         const v = this.viewport();
@@ -598,6 +610,7 @@ class Editor {
             ${this.renderNodes()}
             ${this.renderSelectedNodes()}
             ${this.drawNodesSelectionBox()}
+            ${this.renderFocusedNode()}
             </g>
             ${this.rubberSelection()}
         </svg>
